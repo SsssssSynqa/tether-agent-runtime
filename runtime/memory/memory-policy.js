@@ -10,6 +10,7 @@ const DEFAULT_MEMORY_POLICY = Object.freeze({
     entityId: 'owner',
     displayName: 'Owner',
     disallowedDisplayNames: Object.freeze([]),
+    semanticDisallowedDisplayNames: Object.freeze([]),
     namingSubjects: Object.freeze(['they', 'the owner', 'user', 'User', 'Owner']),
   }),
   sourceLabels: Object.freeze({
@@ -85,6 +86,14 @@ function normalizeMemoryPolicy(value = {}) {
         owner.displayName,
         DEFAULT_MEMORY_POLICY.owner.displayName,
       )),
+    semanticDisallowedDisplayNames: uniqueStrings(
+      Object.hasOwn(owner, 'semanticDisallowedDisplayNames')
+        ? owner.semanticDisallowedDisplayNames
+        : owner.disallowedDisplayNames,
+    ).filter((name) => name !== nonEmptyString(
+      owner.displayName,
+      DEFAULT_MEMORY_POLICY.owner.displayName,
+    )),
     namingSubjects: uniqueStrings(owner.namingSubjects).length
       ? uniqueStrings(owner.namingSubjects)
       : [...DEFAULT_MEMORY_POLICY.owner.namingSubjects],

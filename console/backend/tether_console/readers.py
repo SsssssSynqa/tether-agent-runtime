@@ -18,7 +18,7 @@ from typing import Any, Iterable
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _FOLD_HEADER_RE = re.compile(
-    r"^##\s+(\d{2}):(\d{2}):(\d{2})(?:（北京时间）)?\s*·\s*折叠\s+(\d+)\s*轮\s*$",
+    r"^##\s+(\d{2}):(\d{2}):(\d{2})(?:（[^）\n]+）)?\s*·\s*折叠\s+(\d+)\s*轮\s*$",
     re.MULTILINE,
 )
 
@@ -106,11 +106,13 @@ def card_markdown_path(card_dir: Path, layer: str, period_key: str) -> Path | No
         return None
     if layer == "day":
         names = [
+            card_dir / "day-cards" / period_key[:4] / f"{period_key}.md",
             card_dir / "day" / period_key[:4] / f"{period_key}.md",
             card_dir / "日卡" / period_key[:4] / f"{period_key}.md",
         ]
     else:
-        names = list((card_dir / "week" / period_key[:4]).glob(f"{period_key}*.md"))
+        names = list((card_dir / "week-cards" / period_key[:4]).glob(f"{period_key}*.md"))
+        names += list((card_dir / "week" / period_key[:4]).glob(f"{period_key}*.md"))
         names += list((card_dir / "周卡" / period_key[:4]).glob(f"{period_key}*.md"))
     return next((path for path in names if path.is_file()), None)
 
@@ -345,6 +347,7 @@ def semantic_state(semantic_dir: Path) -> dict[str, Any]:
         "projections": latest_by(strict_jsonl(semantic_dir / "projections.jsonl"), "projectionId"),
         "reviews": latest_by(strict_jsonl(semantic_dir / "packet-reviews.jsonl"), "packetId"),
         "packets": latest_by(strict_jsonl(semantic_dir / "packets.jsonl"), "packetId"),
+        "queue": latest_by(strict_jsonl(semantic_dir / "inbox.jsonl"), "packetId"),
         "patches": strict_jsonl(semantic_dir / "patches.jsonl"),
         "entities": {
             str(item.get("entityId")): item
@@ -361,6 +364,32 @@ def semantic_public(state: dict[str, Any]) -> dict[str, Any]:
     events = sorted(state["events"].values(), key=lambda item: record_time(item) or item.get("occurredFrom") or "", reverse=True)
     projections = sorted(state["projections"].values(), key=lambda item: record_time(item) or "", reverse=True)
     reviews = sorted(state["reviews"].values(), key=lambda item: record_time(item) or "", reverse=True)
+    queue = sorted(
+        (
+            {
+                "packetId": item.get("packetId"),
+                "status": item.get("status") or "unknown",
+                "queueClass": item.get("queueClass") or "live",
+                "attempts": int(item.get("attempts") or 0),
+                "reviewAttempts": int(item.get("reviewAttempts") or 0),
+                "nextRetryAt": item.get("nextRetryAt"),
+                "updatedAt": item.get("updatedAt"),
+            }
+            for item in state["queue"].values()
+        ),
+        key=lambda item: record_time(item) or "",
+        reverse=True,
+    )
+    queue_counts = {
+        status: sum(item["status"] == status for item in queue)
+        for status in (
+            "pending",
+            "retry",
+            "partial_review_pending",
+            "needs_human_review",
+            "completed",
+        )
+    }
     return {
         "mode": state["manifest"].get("mode") or "off",
         "schema_version": state["manifest"].get("schemaVersion"),
@@ -373,11 +402,23 @@ def semantic_public(state: dict[str, Any]) -> dict[str, Any]:
             "supported_claims": sum(item.get("verificationStatus") == "supported" for item in claims),
             "accepted_events": sum(item.get("status") == "accepted" for item in events),
             "accepted_projections": sum(item.get("status") == "accepted" and not item.get("stale") for item in projections),
+            "queue_total": len(queue),
+            "queue_pending": queue_counts["pending"],
+            "queue_retry": queue_counts["retry"],
+            "queue_partial_review": queue_counts["partial_review_pending"],
+            "queue_human_review": queue_counts["needs_human_review"],
+            "queue_completed": queue_counts["completed"],
+            "queue_actionable": (
+                queue_counts["pending"]
+                + queue_counts["retry"]
+                + queue_counts["partial_review_pending"]
+            ),
         },
         "claims": claims,
         "events": events,
         "projections": projections,
         "reviews": reviews,
+        "queue": queue,
     }
 
 

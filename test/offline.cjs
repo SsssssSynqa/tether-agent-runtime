@@ -7,6 +7,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { AppendOnlyMemory } = require('../runtime/memory/append-only-memory.cjs');
 const {
+  MemoryMaintenanceSupervisor,
+  resultDidWork,
+} = require('../runtime/memory/maintenance-supervisor.cjs');
+const {
   SelfsameContinuityError,
   SelfsameSession,
   atomicWriteJson,
@@ -14,8 +18,8 @@ const {
 const { TetherRuntime } = require('../runtime/tether-runtime.cjs');
 const { createMemoryChannel } = require('../runtime/channels/memory-channel.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
-const { validateMemoryBundle } = require('../runtime/semantic/semantic-memory-validators.js');
-const { SemanticMemoryStore } = require('../runtime/semantic/semantic-memory-store.js');
+const { validateMemoryBundle } = require('../runtime/memory/semantic-memory-validators.js');
+const { SemanticMemoryStore } = require('../runtime/memory/semantic-memory-store.js');
 const { DurableInbox } = require('../runtime/durable/durable-inbox.js');
 const { sendWithGroupRateLimit } = require('../lib/telegram/group-rate-limit.cjs');
 const {
@@ -150,6 +154,7 @@ async function main() {
     });
     assert.equal(exampleConfig.agent.id, 'agent');
     assert.match(exampleConfig.persona.prompt, /same continuous agent/);
+    assert.equal(exampleConfig.memory.semantic.mode, 'cards');
     assert.throws(
       () => validateConfig({
         ...exampleConfig,
@@ -229,6 +234,14 @@ async function main() {
       ...configEnvelope,
       providers: [providerConfig({ baseUrl: 'http://127.0.0.1:11434/v1' })],
     }));
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        memory: { semantic: { mode: 'invented' } },
+        providers: [providerConfig()],
+      }),
+      /memory.semantic.mode/,
+    );
     const headerEnvConfigPath = path.join(root, 'header-env-config.json');
     fs.writeFileSync(headerEnvConfigPath, JSON.stringify({
       ...configEnvelope,
@@ -797,6 +810,8 @@ async function main() {
       message: { message_id: 9, text: 'hello', from: { id: 11 }, chat: { id: 12, type: 'private' } },
     }, { ownerIds: [11] });
     assert.equal(normalized.metadata.owner, true);
+    assert.equal(normalized.metadata.senderDisplayName, '11');
+    assert.equal(normalized.metadata.senderIsBot, false);
     assert.equal(normalized.messageId, 'telegram:update:8');
     assert.equal(normalized.metadata.updateKind, 'message');
     assert.equal(normalizeTelegramUpdate({
@@ -856,6 +871,9 @@ async function main() {
         model: 'mock-model',
         foldModel: 'mock-fold-model',
         memoryModel: 'mock-memory-model',
+        semanticExtractorModel: 'mock-semantic-extractor',
+        semanticVerifierModel: 'mock-semantic-verifier',
+        semanticHighRiskModel: 'mock-semantic-high-risk',
       }],
       fetchImpl: async (_url, options) => {
         requestedBody = JSON.parse(options.body);
@@ -868,6 +886,12 @@ async function main() {
     assert.equal(requestedBody.model, 'mock-fold-model');
     await openAi.respond({ purpose: 'memory-card', messages: [{ role: 'user', content: 'card' }] });
     assert.equal(requestedBody.model, 'mock-memory-model');
+    await openAi.respond({ purpose: 'semantic-extract', messages: [{ role: 'user', content: '{}' }] });
+    assert.equal(requestedBody.model, 'mock-semantic-extractor');
+    await openAi.respond({ purpose: 'semantic-verify', messages: [{ role: 'user', content: '{}' }] });
+    assert.equal(requestedBody.model, 'mock-semantic-verifier');
+    await openAi.respond({ purpose: 'semantic-high-risk', messages: [{ role: 'user', content: '{}' }] });
+    assert.equal(requestedBody.model, 'mock-semantic-high-risk');
     await assert.rejects(
       createOpenAICompatibleProvider({
         providers: [{ id: 'remote-http', baseUrl: 'http://example.invalid/v1', model: 'x' }],
@@ -905,6 +929,33 @@ async function main() {
       ['stale.txt'],
       'an allowlist removal must not leave a previously managed public file behind silently',
     );
+
+    const scheduled = [];
+    let supervisorRuns = 0;
+    const supervisor = new MemoryMaintenanceSupervisor({
+      memory: {
+        async maintainOne() {
+          supervisorRuns += 1;
+          return { status: 'completed', semantic: { status: 'generated' }, cards: { status: 'idle' } };
+        },
+      },
+      idleIntervalMs: 5_000,
+      activeDelayMs: 10,
+      setTimer(callback, delay) {
+        const timer = { callback, delay, unref() {} };
+        scheduled.push(timer);
+        return timer;
+      },
+      clearTimer() {},
+      log: () => {},
+    });
+    assert.equal(supervisor.start(), true);
+    assert.equal(scheduled.at(-1).delay, 0);
+    await supervisor._cycle();
+    assert.equal(supervisorRuns, 1);
+    assert.equal(scheduled.at(-1).delay, 10);
+    assert.equal(resultDidWork({ semantic: { status: 'generated' } }), true);
+    assert.equal(supervisor.stop(), true);
 
     const instanceLockPath = path.join(root, 'single-writer', '.tether-instance.lock');
     const firstLock = acquireInstanceLock(instanceLockPath);

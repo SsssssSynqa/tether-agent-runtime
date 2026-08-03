@@ -68,8 +68,8 @@ class ConsoleService:
         )
 
     def semantic(self, kind: str = "all") -> dict:
-        if kind not in {"all", "claims", "events", "projections", "reviews"}:
-            raise ValueError("kind must be all, claims, events, projections, or reviews")
+        if kind not in {"all", "claims", "events", "projections", "reviews", "queue"}:
+            raise ValueError("kind must be all, claims, events, projections, reviews, or queue")
         payload = semantic_public(semantic_state(self.settings.semantic_dir))
         if kind == "all":
             return payload

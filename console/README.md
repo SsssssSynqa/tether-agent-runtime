@@ -8,6 +8,7 @@ Tether Console is the generic extraction of the production Memory Hub views used
 
 - fold logs plus day and week cards;
 - semantic claims, events, projections, and packet reviews as separate records;
+- durable semantic extraction queue health without exposing raw packet text or provider errors;
 - the latest recorded compile manifest—the context the runtime actually loaded;
 - source references and exact evidence-quote availability;
 - dangling claim/event references and supported claims without quotes;
@@ -59,8 +60,8 @@ memory/
 │   ├── cards.jsonl
 │   ├── coverage.jsonl
 │   ├── compile-manifests.jsonl
-│   ├── day/YYYY/YYYY-MM-DD.md
-│   └── week/YYYY/YYYY-MM-DD--YYYY-MM-DD.md
+│   ├── day-cards/YYYY/YYYY-MM-DD.md
+│   └── week-cards/YYYY/YYYY-MM-DD--YYYY-MM-DD.md
 └── semantic/
     ├── manifest.json
     ├── entities.json
@@ -68,6 +69,7 @@ memory/
     ├── events.jsonl
     ├── projections.jsonl
     ├── packets.jsonl
+    ├── inbox.jsonl
     ├── packet-reviews.jsonl
     ├── patches.jsonl
     └── compile-manifests.jsonl
@@ -96,7 +98,7 @@ For compatibility with the original local folder layout, the card reader also re
 | `GET /api/status` | Readiness, counts, and integrity summary |
 | `GET /api/cards?layer=all|day|week|fold` | Human-readable layered memory |
 | `GET /api/cards/{item_id}` | One card/fold record |
-| `GET /api/semantic?kind=all|claims|events|projections|reviews` | Verifiable semantic journals |
+| `GET /api/semantic?kind=all|claims|events|projections|reviews|queue` | Verifiable semantic journals and sanitized extraction queue state |
 | `GET /api/context/current` | Latest recorded compile manifest |
 | `GET /api/sources` | Source-to-memory references |
 | `GET /api/integrity` | Referential and evidence checks |
@@ -132,7 +134,7 @@ The standard-library exporter performs exact-byte copies only, writes determinis
 
 ## Deliberate boundaries
 
-- This console inspects local memory; it is not the provider adapter, Telegram adapter, terminal adapter, or durable delivery queue.
+- This console inspects local memory and the semantic extraction queue; it is not the provider adapter, Telegram adapter, terminal adapter, or Telegram delivery queue.
 - Human correction writes and authenticated multi-principal Memory Hub workflows stay outside this public read-only surface.
 - Integrity checks validate the journal references available in the local folder. They cannot prove that an upstream chat export itself is complete.
 - JSONL is parsed strictly on every request in this first public version. Very large installations should retain Tether's bounded active manifests and archive rotation.

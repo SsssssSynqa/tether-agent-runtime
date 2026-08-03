@@ -6,6 +6,9 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const { loadTetherConfig } = require('../runtime/config-loader.cjs');
 const { LayeredMemory } = require('../runtime/memory/layered-memory.cjs');
+const {
+  MemoryMaintenanceSupervisor,
+} = require('../runtime/memory/maintenance-supervisor.cjs');
 const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
 const { SelfsameSession } = require('../runtime/selfsame-session.cjs');
 const { TetherRuntime } = require('../runtime/tether-runtime.cjs');
@@ -18,6 +21,11 @@ const {
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
 
 let instanceLock = null;
+let memoryRuntime = null;
+let maintenanceSupervisor = null;
+let telegramChannel = null;
+let terminalInterface = null;
+let resourcesReleased = false;
 
 function diagnosticCode(error) {
   switch (error?.code) {
@@ -36,8 +44,18 @@ function reportFailure(scope, error) {
   console.error(`[tether] ${label} failed (${diagnosticCode(error)})`);
 }
 
-function releaseInstanceLock() {
+function releaseResources() {
+  if (resourcesReleased) return;
+  resourcesReleased = true;
+  try { maintenanceSupervisor?.stop(); } catch (_) { /* shutdown is best effort */ }
+  try { telegramChannel?.stop(); } catch (_) { /* shutdown is best effort */ }
+  try { terminalInterface?.close(); } catch (_) { /* shutdown is best effort */ }
+  try { memoryRuntime?.close(); } catch (_) { /* shutdown is best effort */ }
   try { instanceLock?.release(); } catch (_) { /* process shutdown is best effort */ }
+  maintenanceSupervisor = null;
+  telegramChannel = null;
+  terminalInterface = null;
+  memoryRuntime = null;
   instanceLock = null;
 }
 
@@ -45,10 +63,10 @@ async function main() {
   const configPath = process.argv[2] || './config.json';
   const config = loadTetherConfig(configPath);
   instanceLock = acquireInstanceLock(path.join(config.storage.root, '.tether-instance.lock'));
-  process.once('exit', releaseInstanceLock);
+  process.once('exit', releaseResources);
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.once(signal, () => {
-      releaseInstanceLock();
+      releaseResources();
       process.exit(0);
     });
   }
@@ -62,9 +80,15 @@ async function main() {
       model: provider.model,
       foldModel: provider.foldModel,
       memoryModel: provider.memoryModel,
+      semanticExtractorModel: provider.semanticExtractorModel,
+      semanticVerifierModel: provider.semanticVerifierModel,
+      semanticHighRiskModel: provider.semanticHighRiskModel,
       maxTokens: provider.maxTokens,
       foldMaxTokens: provider.foldMaxTokens,
       memoryMaxTokens: provider.memoryMaxTokens,
+      semanticExtractorMaxTokens: provider.semanticExtractorMaxTokens,
+      semanticVerifierMaxTokens: provider.semanticVerifierMaxTokens,
+      semanticHighRiskMaxTokens: provider.semanticHighRiskMaxTokens,
       headers: provider.headers,
       timeoutMs: provider.timeoutMs,
     }));
@@ -78,6 +102,7 @@ async function main() {
     addressPolicy: config.addressPolicy,
     memory: config.memory,
   });
+  memoryRuntime = memory;
   const session = new SelfsameSession({
     stateFile: path.join(config.storage.root, 'session.json'),
     agentId: config.agent.id,
@@ -90,11 +115,20 @@ async function main() {
   // Bootstrap once at the process boundary.  Channels never race to decide
   // whether they are allowed to create the primary session.
   await session.open({ allowCreate: config.runtime?.allowInitialSessionCreate === true });
+  maintenanceSupervisor = new MemoryMaintenanceSupervisor({
+    memory,
+    idleIntervalMs: config.runtime?.maintenanceIntervalMs,
+    activeDelayMs: config.runtime?.maintenanceActiveDelayMs,
+    errorBaseDelayMs: config.runtime?.maintenanceErrorBaseDelayMs,
+    errorMaxDelayMs: config.runtime?.maintenanceErrorMaxDelayMs,
+  });
+  maintenanceSupervisor.start();
   const terminal = createTerminalChannel();
   const runtime = new TetherRuntime({
     session,
     memory,
     provider,
+    maintenanceSupervisor,
     personaPrompt: config.persona.prompt,
     rawTailMessages: config.runtime?.rawTailMessages,
     summaryLimit: config.runtime?.summaryLimit,
@@ -112,17 +146,18 @@ async function main() {
       rateLimitStateDir: config.telegram.rateLimitStateDir || null,
       offsetStore: createFileOffsetStore(path.join(config.storage.root, 'telegram-offset.txt')),
     });
+    telegramChannel = telegram;
     runtime.attach(telegram);
     telegram.start().catch((error) => {
       reportFailure('telegram', error);
       process.exitCode = 1;
     });
   }
-  terminal.start();
+  terminalInterface = terminal.start();
 }
 
 main().catch((error) => {
-  releaseInstanceLock();
+  releaseResources();
   reportFailure('startup', error);
   process.exitCode = 1;
 });

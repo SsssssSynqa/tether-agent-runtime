@@ -14,13 +14,13 @@
     },
     {
       "path": "bin/tether.cjs",
-      "sha256": "2e90b4217f3df1ea5ba5c5a9ea67ad251072270e1da71f53b43e3815565344e0",
-      "size": 5031
+      "sha256": "c79685b1968595ac04b2ebe7c50b1b090ef4032dbe3d1b1e23d3390362848713",
+      "size": 6625
     },
     {
       "path": "config.example.json",
-      "sha256": "164b4f47baf1858e289f2919e93d4e97f6ac9e52763a4e1785f1691e312131a4",
-      "size": 1724
+      "sha256": "f465b7fda6b7373fcd9a88ebd34e2914ea4434cda37636f87be0abdf0768ab6d",
+      "size": 2146
     },
     {
       "path": "lib/telegram/group-batcher.cjs",
@@ -49,8 +49,8 @@
     },
     {
       "path": "public-export-manifest.json",
-      "sha256": "390cece92c1cce1e9f21b6444a9ee8eba453e5c2bc0e7e9b460b3439bd341aeb",
-      "size": 4750
+      "sha256": "e5a0fa6cf371aa5ad80da9b5ec1d0519651980e26ccff3a7f39a93757f1c494e",
+      "size": 5418
     },
     {
       "path": "runtime/bridge/group-ingress-sequencer.js",
@@ -69,8 +69,8 @@
     },
     {
       "path": "runtime/causal-journal.cjs",
-      "sha256": "1207df946501ab971ace217f3ac97f1c9e2b651e553c0db0f00246924e52f661",
-      "size": 6211
+      "sha256": "d744d72c81c260bc52b71477edb622f2fe6af0e2987bb87ef407877dcdc87e8f",
+      "size": 6299
     },
     {
       "path": "runtime/channels/memory-channel.cjs",
@@ -79,8 +79,8 @@
     },
     {
       "path": "runtime/channels/telegram.cjs",
-      "sha256": "f3503b0f137e1275bec33602d6d8994b535c127de11e94426ddfd7f125cd9554",
-      "size": 6886
+      "sha256": "6ee5f181fe33fefc36d5e67b978d700178ab28fea9db4c08381a8eedb5236038",
+      "size": 7217
     },
     {
       "path": "runtime/channels/terminal.cjs",
@@ -89,8 +89,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "1476dd75ce3277f49c39703bccc5c02455123f501dc94d2a0c81eff83d0f0f6d",
-      "size": 9308
+      "sha256": "4efe16686fa838964f9ee647b72650f3bdf2afb8122207f5d7961ca01e5e3ed9",
+      "size": 11033
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",
@@ -144,8 +144,13 @@
     },
     {
       "path": "runtime/memory/layered-memory.cjs",
-      "sha256": "dd6bcfe13650f383d4b63a30214bf187ea6997b683a897c0e108639d5e20c654",
-      "size": 7719
+      "sha256": "a1589d23e17dfdf3386502f23683abb27218314a56d462e46761f35e8278f390",
+      "size": 15949
+    },
+    {
+      "path": "runtime/memory/maintenance-supervisor.cjs",
+      "sha256": "21bee4049b237f375bc644e5c247704aa6cfd0ac1f70b4d0309db5c6802df90a",
+      "size": 3607
     },
     {
       "path": "runtime/memory/memory-card-address.js",
@@ -174,8 +179,8 @@
     },
     {
       "path": "runtime/memory/memory-policy.js",
-      "sha256": "6bc55afcc1e4bd11b574c30a369c26c162211ede06f4847ea42cbd69108a7c38",
-      "size": 6209
+      "sha256": "a22472df5b2270d169f745baba48e19cce80f3f2db5376bef9f51aaccc156f84",
+      "size": 6591
     },
     {
       "path": "runtime/memory/memory-sources.js",
@@ -188,9 +193,44 @@
       "size": 4751
     },
     {
+      "path": "runtime/memory/semantic-memory-entities.js",
+      "sha256": "a24bc2a09efbb558840b2868a38c994e8c1b348d98d74a2a02020b6a8b45b729",
+      "size": 4218
+    },
+    {
+      "path": "runtime/memory/semantic-memory-manager.js",
+      "sha256": "64d2c7d85a8367e8fab1a760b6422d1643dd1403741447e46345e5524c4734c1",
+      "size": 46235
+    },
+    {
+      "path": "runtime/memory/semantic-memory-model-adapter.js",
+      "sha256": "e2b1c9f54080b52435e1eb388035fdfc17feef113333d0448f2cea9d2437fd3a",
+      "size": 19681
+    },
+    {
+      "path": "runtime/memory/semantic-memory-pipeline.js",
+      "sha256": "1af7dbf96e7b803fb0455bdecd455da196505648535344e4b9905cfd5e3aff71",
+      "size": 38681
+    },
+    {
+      "path": "runtime/memory/semantic-memory-projections.js",
+      "sha256": "ceee73326b224862c44d30c3870fb2fedb1938a993a17163b253e230df0ab966",
+      "size": 20045
+    },
+    {
+      "path": "runtime/memory/semantic-memory-store.js",
+      "sha256": "e8f1a4989fbf6c91ca588370ef0c6b05162fa7e3857163923e8876d47d805823",
+      "size": 48519
+    },
+    {
+      "path": "runtime/memory/semantic-memory-validators.js",
+      "sha256": "361c4cd9df4b3cc0be499ee8d6421dbf81ab5bb2daf62c4a98342ce4356fd8f9",
+      "size": 18955
+    },
+    {
       "path": "runtime/providers/openai-compatible.cjs",
-      "sha256": "f1bf9ecb7e6e53fad7b54811953fd8e31df470290519c51f6f8105fa99245e82",
-      "size": 3652
+      "sha256": "943e3e2e595e8ecc2acaab19369144ccec0d7b36ff439fe6283f7f9efca2ea57",
+      "size": 4721
     },
     {
       "path": "runtime/selfsame-session.cjs",
@@ -198,19 +238,9 @@
       "size": 5491
     },
     {
-      "path": "runtime/semantic/semantic-memory-store.js",
-      "sha256": "e8f1a4989fbf6c91ca588370ef0c6b05162fa7e3857163923e8876d47d805823",
-      "size": 48519
-    },
-    {
-      "path": "runtime/semantic/semantic-memory-validators.js",
-      "sha256": "361c4cd9df4b3cc0be499ee8d6421dbf81ab5bb2daf62c4a98342ce4356fd8f9",
-      "size": 18955
-    },
-    {
       "path": "runtime/tether-runtime.cjs",
-      "sha256": "84d2c7097450d8b04cbb45b6df83112e2e800bd56f3a57efd0c15b3d9dfe83ae",
-      "size": 9949
+      "sha256": "e3a8cfcee4d3afd47956d0b83eff114b21a587032ac810dd258d95449829cfc6",
+      "size": 10738
     },
     {
       "path": "runtime/transport/chunk-emitter.js",
@@ -224,8 +254,8 @@
     },
     {
       "path": "scripts/export-public-snapshot.cjs",
-      "sha256": "994f47b00d102680181c977ba3ab0ab9748328d3bd64e084a4164b6806572d21",
-      "size": 4420
+      "sha256": "ed67bc445317f0dd496592c0d3714e06a5150c6a8b0fbba8535e02eca3768a3a",
+      "size": 4580
     },
     {
       "path": "scripts/verify-export-lock.cjs",
@@ -244,13 +274,13 @@
     },
     {
       "path": "test/layered-runtime.cjs",
-      "sha256": "1804fcb627b825feeb93d261229d773acfc946526610811bf063e0e5349f29bf",
-      "size": 5307
+      "sha256": "aaa0bcf82677d7075fe5bdd35304232ad15f46c4e53896260007aea723f20c00",
+      "size": 8649
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "37171d26c9adf714b4e80aeb5daff6d67435dabe9fd7a694901ad4fbd1b752ae",
-      "size": 39976
+      "sha256": "31af7d2b15e63a5e07b2757241ff291e3a1972711ef86352d7c99d916ee12127",
+      "size": 42064
     }
   ]
 }

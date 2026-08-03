@@ -18,6 +18,67 @@ async function main() {
     const provider = {
       async respond({ messages, purpose = 'chat' }) {
         calls.push({ purpose, messages: structuredClone(messages) });
+        if (purpose.startsWith('semantic-extract')) {
+          const payload = JSON.parse(messages.at(-1).content);
+          const ownerMessage = payload.rawMessages.find(
+            (message) => message.senderEntityId === 'rin',
+          );
+          if (!ownerMessage?.text.includes('signal must remain amber')) {
+            return {
+              text: '{"noSignal":true,"claims":[],"events":[]}',
+              providerId: 'offline-semantic-extractor',
+            };
+          }
+          return {
+            text: JSON.stringify({
+              noSignal: false,
+              claims: [{
+                localId: 'amber-boundary',
+                kind: 'boundary',
+                observedAt: ownerMessage.sentAt,
+                speakerEntityId: 'rin',
+                subjectEntityId: 'rin',
+                predicate: 'requires_continuity_signal',
+                objectEntityId: null,
+                objectLiteral: 'amber',
+                targetEntityId: null,
+                polarity: 'positive',
+                modality: 'asserted',
+                temporalQualifier: null,
+                numericQualifiers: [],
+                content: 'Rin requires the continuity signal to remain amber.',
+                epistemicStatus: 'explicit',
+                evidence: [{
+                  messageId: ownerMessage.messageId,
+                  quote: ownerMessage.text,
+                  role: 'direct_statement',
+                }],
+                supersedesClaimIds: [],
+                hardPreserve: true,
+              }],
+              events: [],
+            }),
+            providerId: 'offline-semantic-extractor',
+          };
+        }
+        if (['semantic-verify', 'semantic-high-risk'].includes(purpose)) {
+          const payload = JSON.parse(messages.at(-1).content);
+          const evidence = payload.claim.evidence[0];
+          return {
+            text: JSON.stringify({
+              verdicts: payload.requiredFields.map((field) => ({
+                field,
+                verdict: 'supported',
+                reason: 'offline exact-source fixture',
+                evidence: [{
+                  messageId: evidence.messageId,
+                  quote: evidence.quote,
+                }],
+              })),
+            }),
+            providerId: `offline-${purpose}`,
+          };
+        }
         if (purpose === 'fold') {
           return {
             text: 'Rin asked for continuity and Archivist preserved the completed turn.\n未收尾：无',
@@ -72,7 +133,11 @@ async function main() {
       log: () => {},
     }).attach(terminal).attach(telegram);
 
-    const firstInput = { messageId: 'terminal:1', text: 'first', metadata: { trustZone: 'dm' } };
+    const firstInput = {
+      messageId: 'terminal:1',
+      text: 'Remember: my signal must remain amber.',
+      metadata: { trustZone: 'dm' },
+    };
     const first = await terminal.receive(firstInput);
     const duplicate = await terminal.receive(firstInput);
     assert.equal(duplicate.outputId, first.outputId);
@@ -83,17 +148,40 @@ async function main() {
     await terminal.receive({ messageId: 'terminal:2', text: 'third', metadata: { trustZone: 'dm' } });
     const chatCalls = calls.filter((call) => call.purpose === 'chat');
     assert.equal(chatCalls.length, 3);
-    assert(chatCalls[1].messages.some((message) => message.content === 'first'));
-    assert(chatCalls[1].messages.some((message) => message.content === 'reply:first'));
+    assert(chatCalls[1].messages.some(
+      (message) => message.content === 'Remember: my signal must remain amber.',
+    ));
+    assert(chatCalls[1].messages.some(
+      (message) => message.content === 'reply:Remember: my signal must remain amber.',
+    ));
+    assert(chatCalls[1].messages.some(
+      (message) => String(message.content).includes(
+        'Rin requires the continuity signal to remain amber.',
+      ),
+    ));
     assert(calls.some((call) => call.purpose === 'fold'));
+    assert(calls.some((call) => call.purpose === 'semantic-extract'));
+    assert(calls.some((call) => call.purpose === 'semantic-verify'));
+    assert(calls.some((call) => call.purpose === 'semantic-high-risk'));
 
     const transcript = fs.readFileSync(path.join(memoryDirectory, 'transcript.jsonl'), 'utf8')
       .trim().split('\n').map((line) => JSON.parse(line));
     assert.equal(transcript[0].type, 'bootstrap');
     assert.equal(transcript.filter((entry) => entry.type === 'turn').length, 3);
-    assert.equal(transcript.some((entry) => entry.user === 'first' && entry.assistant === 'reply:first'), true);
+    assert.equal(transcript.some((entry) => (
+      entry.user === 'Remember: my signal must remain amber.'
+      && entry.assistant === 'reply:Remember: my signal must remain amber.'
+      && entry.semanticPacketId
+    )), true);
     const causal = fs.readFileSync(path.join(memoryDirectory, 'causal-journal.jsonl'), 'utf8');
-    assert(causal.includes('"text":"first"'));
+    assert(causal.includes('"text":"Remember: my signal must remain amber."'));
+    assert.equal(memory.semantic.store.packets().length, 3);
+    assert(memory.semantic.store.claims().some(
+      (claim) => claim.content === 'Rin requires the continuity signal to remain amber.',
+    ));
+    assert(memory.semantic.store.projections().some(
+      (projection) => projection.status === 'accepted',
+    ));
     assert.equal(memory.history.transcriptProof().memorySourceCount, 3);
     const stored = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
     assert.equal(memory.verifySession(stored.sessionId, { expectedProof: stored.memoryProof }).passed, true);

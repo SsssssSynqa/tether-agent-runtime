@@ -72,8 +72,14 @@ function normalizeTelegramUpdate(update, {
       telegramMessageId: message.message_id,
       chatId,
       senderId,
+      senderDisplayName: [message.from?.first_name, message.from?.last_name]
+        .filter(Boolean).join(' ') || message.from?.username || senderId,
+      senderIsBot: message.from?.is_bot === true,
       owner,
       isGroup,
+      sentAt: Number.isFinite(Number(message.date))
+        ? new Date(Number(message.date) * 1000).toISOString()
+        : null,
     },
   };
 }

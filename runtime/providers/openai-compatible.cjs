@@ -10,6 +10,45 @@ function completionText(payload) {
   return '';
 }
 
+function modelForPurpose(provider, purpose) {
+  switch (purpose) {
+    case 'fold':
+      return provider.foldModel || provider.model;
+    case 'memory-card':
+      return provider.memoryModel || provider.foldModel || provider.model;
+    case 'semantic-extract':
+    case 'semantic-extract-repair':
+    case 'semantic-extract-audit':
+      return provider.semanticExtractorModel
+        || provider.memoryModel
+        || provider.foldModel
+        || provider.model;
+    case 'semantic-verify':
+      return provider.semanticVerifierModel || provider.model;
+    case 'semantic-high-risk':
+      return provider.semanticHighRiskModel
+        || provider.semanticVerifierModel
+        || provider.model;
+    default:
+      return provider.model;
+  }
+}
+
+function maxTokensForPurpose(provider, purpose) {
+  switch (purpose) {
+    case 'fold': return provider.foldMaxTokens;
+    case 'memory-card': return provider.memoryMaxTokens;
+    case 'semantic-extract':
+    case 'semantic-extract-repair':
+    case 'semantic-extract-audit':
+      return provider.semanticExtractorMaxTokens || provider.memoryMaxTokens;
+    case 'semantic-verify': return provider.semanticVerifierMaxTokens;
+    case 'semantic-high-risk': return provider.semanticHighRiskMaxTokens
+      || provider.semanticVerifierMaxTokens;
+    default: return provider.maxTokens;
+  }
+}
+
 function createOpenAICompatibleProvider({ providers, fetchImpl = globalThis.fetch, timeoutMs = 120000 } = {}) {
   if (!Array.isArray(providers) || providers.length === 0) throw new Error('Provider chain is empty');
   if (typeof fetchImpl !== 'function') throw new Error('A fetch implementation is required');
@@ -19,16 +58,8 @@ function createOpenAICompatibleProvider({ providers, fetchImpl = globalThis.fetc
       for (const provider of providers) {
         try {
           if (!provider.baseUrl || !provider.model) throw new Error('baseUrl and model are required');
-          const model = purpose === 'fold'
-            ? (provider.foldModel || provider.model)
-            : purpose === 'memory-card'
-              ? (provider.memoryModel || provider.foldModel || provider.model)
-              : provider.model;
-          const maxTokens = purpose === 'fold'
-            ? provider.foldMaxTokens
-            : purpose === 'memory-card'
-              ? provider.memoryMaxTokens
-              : provider.maxTokens;
+          const model = modelForPurpose(provider, purpose);
+          const maxTokens = maxTokensForPurpose(provider, purpose);
           const parsedUrl = new URL(provider.baseUrl);
           const protocol = parsedUrl.protocol;
           if (!['http:', 'https:'].includes(protocol)) throw new Error('baseUrl must use http or https');
@@ -81,4 +112,9 @@ function createOpenAICompatibleProvider({ providers, fetchImpl = globalThis.fetc
   };
 }
 
-module.exports = { completionText, createOpenAICompatibleProvider };
+module.exports = {
+  completionText,
+  createOpenAICompatibleProvider,
+  maxTokensForPurpose,
+  modelForPurpose,
+};

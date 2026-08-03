@@ -25,7 +25,11 @@
   },
   "runtime": {
     "allowInitialSessionCreate": true,
-    "rawTailMessages": 40
+    "rawTailMessages": 40,
+    "maintenanceIntervalMs": 30000,
+    "maintenanceActiveDelayMs": 250,
+    "maintenanceErrorBaseDelayMs": 30000,
+    "maintenanceErrorMaxDelayMs": 3600000
   },
   "memory": {
     "activeSoftTokenWatermark": 36000,
@@ -45,6 +49,11 @@
     "cards": {
       "enabled": true,
       "policy": "lossless"
+    },
+    "semantic": {
+      "mode": "cards",
+      "manifestMaxRecords": 50,
+      "manifestMaxBytes": 8388608
     }
   },
   "telegram": {
@@ -64,7 +73,10 @@
       "apiKeyEnv": "PRIMARY_API_KEY",
       "model": "your-model-id",
       "foldModel": "your-fast-model-id",
-      "memoryModel": "your-fast-model-id"
+      "memoryModel": "your-fast-model-id",
+      "semanticExtractorModel": "your-fast-model-id",
+      "semanticVerifierModel": "your-model-id",
+      "semanticHighRiskModel": "your-model-id"
     }
   ]
 }

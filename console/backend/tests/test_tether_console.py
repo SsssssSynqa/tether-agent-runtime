@@ -111,6 +111,41 @@ def memory_store(tmp_path):
         {"packetId": "packet:sample-001", "status": "committed", "reviewAttempt": 1, "createdAt": "2026-01-02T09:03:00Z"},
     )
     _jsonl(
+        semantic / "inbox.jsonl",
+        {
+            "packetId": "packet:sample-001",
+            "status": "completed",
+            "queueClass": "live",
+            "attempts": 1,
+            "updatedAt": "2026-01-02T09:04:00Z",
+            "packet": {"rawMessages": [{"text": "must stay private"}]},
+        },
+        {
+            "packetId": "packet:retry-001",
+            "status": "retry",
+            "queueClass": "historical",
+            "attempts": 2,
+            "nextRetryAt": "2026-01-04T09:00:00Z",
+            "lastError": "provider details must stay private",
+            "updatedAt": "2026-01-02T09:05:00Z",
+        },
+        {
+            "packetId": "packet:pending-001",
+            "status": "pending",
+            "queueClass": "live",
+            "attempts": 0,
+            "updatedAt": "2026-01-02T09:06:00Z",
+        },
+        {
+            "packetId": "packet:human-001",
+            "status": "needs_human_review",
+            "queueClass": "rebuild-priority",
+            "attempts": 2,
+            "reviewAttempts": 1,
+            "updatedAt": "2026-01-02T09:07:00Z",
+        },
+    )
+    _jsonl(
         semantic / "compile-manifests.jsonl",
         {
             "type": "semantic-memory-context-manifest",
@@ -142,6 +177,9 @@ def test_status_exposes_counts_and_aliases_without_host_paths(client, memory_sto
     assert body["counts"]["week_cards"] == 1
     assert body["counts"]["folds"] == 1
     assert body["counts"]["claims"] == 1
+    assert body["counts"]["queue_total"] == 4
+    assert body["counts"]["queue_actionable"] == 2
+    assert body["counts"]["queue_human_review"] == 1
     assert body["integrity"] == {"healthy": True, "issue_count": 0}
     serialized = response.text
     assert str(memory_store[0]) not in serialized
@@ -168,6 +206,21 @@ def test_semantic_keeps_claim_event_projection_and_review_separate(client):
     events = client.get("/api/semantic?kind=events").json()
     assert events["kind"] == "events"
     assert events["items"][0]["title"] == "Naming decision"
+    queue = client.get("/api/semantic?kind=queue").json()
+    assert queue["count"] == 4
+    retry = next(item for item in queue["items"] if item["status"] == "retry")
+    assert retry == {
+        "packetId": "packet:retry-001",
+        "status": "retry",
+        "queueClass": "historical",
+        "attempts": 2,
+        "reviewAttempts": 0,
+        "nextRetryAt": "2026-01-04T09:00:00Z",
+        "updatedAt": "2026-01-02T09:05:00Z",
+    }
+    semantic_response = client.get("/api/semantic")
+    assert "lastError" not in semantic_response.text
+    assert "must stay private" not in semantic_response.text
 
 
 def test_current_context_sources_and_integrity_are_inspectable(client):
@@ -248,7 +301,7 @@ def test_runtime_memory_card_schema_is_readable_from_memory_root_env(
     tmp_path, monkeypatch
 ):
     """Runtime and Console share the same local cards/cards.jsonl contract."""
-    from tether_console.readers import list_cards
+    from tether_console.readers import list_cards, list_folds
     from tether_console.service import ConsoleService
 
     memory_root = tmp_path / "runtime-memory"
@@ -267,7 +320,30 @@ def test_runtime_memory_card_schema_is_readable_from_memory_root_env(
         "sourceIds": ["source:runtime-sample-001"],
         "content": "The runtime preserved one session across two local adapters.",
     }
-    _jsonl(card_dir / "cards.jsonl", runtime_card)
+    runtime_week_card = {
+        "type": "memory-card",
+        "id": "memory-card:week:2026-02-02:v1:runtime-sample",
+        "cardType": "week",
+        "version": 1,
+        "period": {"key": "2026-02-02"},
+        "sourceIds": [runtime_card["id"]],
+        "content": "Journal week fallback.",
+    }
+    _jsonl(card_dir / "cards.jsonl", runtime_card, runtime_week_card)
+    day_markdown = card_dir / "day-cards" / "2026" / "2026-02-03.md"
+    day_markdown.parent.mkdir(parents=True)
+    day_markdown.write_text(
+        "# Day card\n\nThe canonical day-cards markdown wins.", encoding="utf-8"
+    )
+    week_markdown = card_dir / "week-cards" / "2026" / "2026-02-02--2026-02-08.md"
+    week_markdown.parent.mkdir(parents=True)
+    week_markdown.write_text(
+        "# Week card\n\nThe canonical week-cards markdown wins.", encoding="utf-8"
+    )
+    (fold_dir / "2026-02-03.md").write_text(
+        "# Fold log\n\n## 08:09:10（configured local time） · 折叠 4 轮\n\nGeneric timezone fold.\n\n---\n",
+        encoding="utf-8",
+    )
     original = (card_dir / "cards.jsonl").read_bytes()
     (semantic_dir / "manifest.json").write_text(
         json.dumps({"schemaVersion": 1, "mode": "cards"}), encoding="utf-8"
@@ -280,10 +356,14 @@ def test_runtime_memory_card_schema_is_readable_from_memory_root_env(
     assert settings.card_dir == card_dir.resolve()
 
     records = list_cards(settings.card_dir)
-    assert len(records) == 1
-    assert records[0]["card_id"] == runtime_card["id"]
-    assert records[0]["content"] == runtime_card["content"]
-    assert records[0]["source_ids"] == runtime_card["sourceIds"]
+    assert len(records) == 2
+    day_record = next(item for item in records if item["layer"] == "day")
+    week_record = next(item for item in records if item["layer"] == "week")
+    assert day_record["card_id"] == runtime_card["id"]
+    assert day_record["content"] == "The canonical day-cards markdown wins."
+    assert day_record["source_ids"] == runtime_card["sourceIds"]
+    assert week_record["content"] == "The canonical week-cards markdown wins."
+    assert list_folds(settings.fold_dir)[0]["content"] == "Generic timezone fold."
 
     service_records = ConsoleService(settings).cards("day")
     assert service_records["count"] == 1
@@ -293,7 +373,7 @@ def test_runtime_memory_card_schema_is_readable_from_memory_root_env(
         response = env_client.get("/api/cards?layer=day")
         assert response.status_code == 200
         assert response.json()["items"][0]["id"] == "day:2026-02-03"
-        assert response.json()["items"][0]["content"] == runtime_card["content"]
+        assert response.json()["items"][0]["content"] == "The canonical day-cards markdown wins."
 
     assert (card_dir / "cards.jsonl").read_bytes() == original
     assert not (card_dir / "human-overrides.jsonl").exists()

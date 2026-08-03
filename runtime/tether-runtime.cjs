@@ -8,6 +8,7 @@ class TetherRuntime {
     session,
     memory,
     provider,
+    maintenanceSupervisor = null,
     causalJournal = null,
     personaPrompt = '',
     rawTailMessages = 40,
@@ -21,6 +22,7 @@ class TetherRuntime {
     this.session = session;
     this.memory = memory;
     this.provider = provider;
+    this.maintenanceSupervisor = maintenanceSupervisor;
     this.causal = causalJournal || new CausalJournal({ directory: memory.directory });
     this.personaPrompt = String(personaPrompt || '');
     this.rawTailMessages = rawTailMessages;
@@ -75,11 +77,21 @@ class TetherRuntime {
     const sourceMetadata = sourceMessage.metadata || {};
     await this.memory.ensureTurn(sourceMessage.text, output.text, {
       causalIds: [causalRecord.causalId],
-      source: sourceMetadata.source || channel.id,
+      sessionId: state.sessionId,
+      source: sourceMetadata.source || sourceMetadata.channel || channel.id,
       trustZone: sourceMetadata.trustZone || null,
       chatId: sourceMetadata.chatId || sourceMetadata.telegramChatId || channel.id,
       senderId: sourceMetadata.senderId || sourceMetadata.telegramUserId || null,
+      senderEntityId: sourceMetadata.senderEntityId || null,
+      senderDisplayName: sourceMetadata.senderDisplayName || null,
+      senderIsBot: sourceMetadata.senderIsBot === true,
+      owner: sourceMetadata.owner === true,
+      sentAt: sourceMetadata.sentAt || null,
+      receivedAt: causalRecord.input?.receivedAt || sourceMetadata.receivedAt || null,
+      completedAt: output.committedAt || null,
+      attachmentRefs: sourceMetadata.attachmentRefs || [],
       sourceMessageId: sourceMessage.messageId,
+      outputMessageId: output.outputId,
       completion: { providerId: output.providerId || null },
     });
     return {
@@ -139,6 +151,10 @@ class TetherRuntime {
 
   async _maintainMemory() {
     if (!this.layeredMemory || typeof this.memory.maintainOne !== 'function') return;
+    if (typeof this.maintenanceSupervisor?.trigger === 'function') {
+      this.maintenanceSupervisor.trigger();
+      return;
+    }
     try {
       await this.memory.maintainOne();
     } catch (error) {

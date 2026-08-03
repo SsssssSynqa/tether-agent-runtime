@@ -90,6 +90,7 @@ class CausalJournal {
       textSha256: sha256(text ?? ''),
       metadataSha256: sha256(canonicalJson(metadata || {})),
     };
+    const receivedAt = this.clock();
     const input = {
       ...inputEnvelope,
       // Keep the durable ingress payload beside its hashes. If a process dies
@@ -97,6 +98,7 @@ class CausalJournal {
       // reinference, but the original message itself is never lost.
       text: String(text ?? ''),
       metadata: structuredClone(metadata || {}),
+      receivedAt,
     };
     const inputFingerprint = sha256(canonicalJson(inputEnvelope));
     const existing = this.latest.get(causalId);
@@ -163,6 +165,7 @@ class CausalJournal {
       text: outputText,
       textSha256: sha256(outputText),
       providerId: providerId ? String(providerId) : null,
+      committedAt: this.clock(),
     };
     return this._transition(causalId, ['inference-started'], 'committed', { output });
   }

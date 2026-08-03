@@ -73,7 +73,13 @@ function validateConfig(config) {
     if (!provider.label) errors.push(`providers[${index}].label is required`);
     if (!provider.adapter) errors.push(`providers[${index}].adapter is required`);
     if (!provider.model) errors.push(`providers[${index}].model is required`);
-    for (const field of ['foldModel', 'memoryModel']) {
+    for (const field of [
+      'foldModel',
+      'memoryModel',
+      'semanticExtractorModel',
+      'semanticVerifierModel',
+      'semanticHighRiskModel',
+    ]) {
       if (provider[field] != null && !String(provider[field]).trim()) {
         errors.push(`providers[${index}].${field} must be a non-empty string when supplied`);
       }
@@ -155,6 +161,46 @@ function validateConfig(config) {
   }
   if (memory.cards?.policy != null && !['pending', 'relational', 'lossless'].includes(memory.cards.policy)) {
     errors.push('memory.cards.policy must be pending, relational, or lossless');
+  }
+  if (
+    memory.semantic?.mode != null
+    && !['off', 'shadow', 'cards', 'full'].includes(String(memory.semantic.mode))
+  ) {
+    errors.push('memory.semantic.mode must be off, shadow, cards, or full');
+  }
+  for (const field of ['manifestMaxRecords', 'manifestMaxBytes']) {
+    if (
+      memory.semantic?.[field] != null
+      && (!Number.isFinite(Number(memory.semantic[field])) || Number(memory.semantic[field]) <= 0)
+    ) {
+      errors.push(`memory.semantic.${field} must be a positive number`);
+    }
+  }
+  if (Array.isArray(config.entities)) {
+    const entityIds = config.entities.map((entity) => String(entity?.entityId || '').trim());
+    if (entityIds.some((entityId) => !entityId)) errors.push('entities entries require entityId');
+    if (new Set(entityIds).size !== entityIds.length) errors.push('entities entityId values must be unique');
+  } else if (config.entities != null) {
+    errors.push('entities must be an array when supplied');
+  }
+  for (const field of [
+    'maintenanceIntervalMs',
+    'maintenanceErrorBaseDelayMs',
+    'maintenanceErrorMaxDelayMs',
+  ]) {
+    if (
+      config.runtime?.[field] != null
+      && (!Number.isFinite(Number(config.runtime[field])) || Number(config.runtime[field]) <= 0)
+    ) {
+      errors.push(`runtime.${field} must be a positive number`);
+    }
+  }
+  if (
+    config.runtime?.maintenanceActiveDelayMs != null
+    && (!Number.isFinite(Number(config.runtime.maintenanceActiveDelayMs))
+      || Number(config.runtime.maintenanceActiveDelayMs) < 0)
+  ) {
+    errors.push('runtime.maintenanceActiveDelayMs must be zero or a positive number');
   }
   if (errors.length) throw new Error(`Invalid Tether config:\n- ${errors.join('\n- ')}`);
   return config;
