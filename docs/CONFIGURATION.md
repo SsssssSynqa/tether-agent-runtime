@@ -1,5 +1,7 @@
 # Configuration
 
+中文文档见 [CONFIGURATION.zh-CN.md](CONFIGURATION.zh-CN.md).
+
 Tether uses a public JSON configuration plus an optional ignored overlay. Secrets are resolved from environment variables at load time.
 
 ## Merge order

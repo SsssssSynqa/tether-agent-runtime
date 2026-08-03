@@ -1,5 +1,7 @@
 # Tether Architecture
 
+中文文档见 [ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md).
+
 ## Design goal
 
 Tether keeps one persona-bearing agent attached to one authoritative session while channels, providers, processes, and derived memory layers can change around it. The architecture follows the [Selfsame Protocol](SELFSAME_PROTOCOL.md): identity continuity is a data and recovery invariant, not a similarity claim about model output.

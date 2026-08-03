@@ -1,5 +1,7 @@
 # Security Policy
 
+中文文档见 [SECURITY.zh-CN.md](SECURITY.zh-CN.md).
+
 ## Reporting a vulnerability
 
 Please do not open a public issue for a suspected vulnerability, leaked credential, private transcript, authorization bypass, or privacy exposure.

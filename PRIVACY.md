@@ -1,5 +1,7 @@
 # Privacy Model
 
+中文文档见 [PRIVACY.zh-CN.md](PRIVACY.zh-CN.md).
+
 Tether is local-first: authoritative history and memory are stored in operator-controlled folders, and Tether Console reads those folders locally. Local-first is a deployment property, not a promise that configured providers and channels never receive data.
 
 ## Data flows
