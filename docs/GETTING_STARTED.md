@@ -1,5 +1,7 @@
 # Getting started
 
+中文文档见 [GETTING_STARTED.zh-CN.md](GETTING_STARTED.zh-CN.md).
+
 This guide starts the public reference runtime with terminal and, when enabled, live Telegram long polling. Both channels attach to the same `TetherRuntime` and `SelfsameSession`; never run one persona runtime per channel.
 
 ## 1. Install prerequisites
