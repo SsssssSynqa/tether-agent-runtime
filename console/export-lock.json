@@ -63,13 +63,13 @@
     },
     {
       "path": "frontend/package.json",
-      "sha256": "f29b3cb738bd1b00caff3aefd21bd1a862166a1b930dcdd2574968894cb1af73",
-      "size": 394
+      "sha256": "fb0697cb5ad9b9bceef6e8864444cf379f0dc40b1a94c0b5d1e4d16ac60ffb67",
+      "size": 462
     },
     {
       "path": "frontend/pnpm-lock.yaml",
-      "sha256": "b290e50d889e87013fc18c74570c00547eeb66c188c640c0a41a6c52f7d591d9",
-      "size": 22298
+      "sha256": "86feee344d42bdaa6f16b01fc23fa30d08bb205994d3a3533af441bd7a594feb",
+      "size": 22328
     },
     {
       "path": "frontend/src/api.js",
