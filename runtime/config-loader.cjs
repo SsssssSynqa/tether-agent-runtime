@@ -65,6 +65,49 @@ function validateConfig(config) {
   if (Object.hasOwn(config.telegram || {}, 'token')) {
     errors.push('telegram.token is forbidden; use telegram.tokenEnv');
   }
+  if (
+    config.telegram?.tokenEnv != null
+    && !/^[A-Z_][A-Z0-9_]*$/.test(String(config.telegram.tokenEnv))
+  ) {
+    errors.push('telegram.tokenEnv must be an environment variable name');
+  }
+  if (config.telegram?.allowedGroups != null && !isObject(config.telegram.allowedGroups)) {
+    errors.push('telegram.allowedGroups must be an object');
+  }
+  for (const field of ['noReplyGroupIds', 'rateLimitedGroupIds']) {
+    if (config.telegram?.[field] != null && !Array.isArray(config.telegram[field])) {
+      errors.push(`telegram.${field} must be an array`);
+    }
+  }
+  for (const field of [
+    'pollRetryDelayMs',
+    'retryIntervalMs',
+    'maxAttempts',
+    'retryBaseMs',
+    'retryMaxMs',
+    'durableInboxMaxBytes',
+  ]) {
+    if (
+      config.telegram?.[field] != null
+      && (!Number.isFinite(Number(config.telegram[field])) || Number(config.telegram[field]) <= 0)
+    ) {
+      errors.push(`telegram.${field} must be a positive number`);
+    }
+  }
+  if (
+    config.telegram?.pollTimeoutSeconds != null
+    && (!Number.isFinite(Number(config.telegram.pollTimeoutSeconds))
+      || Number(config.telegram.pollTimeoutSeconds) < 0)
+  ) {
+    errors.push('telegram.pollTimeoutSeconds must be zero or a positive number');
+  }
+  if (
+    config.telegram?.retryBaseMs != null
+    && config.telegram?.retryMaxMs != null
+    && Number(config.telegram.retryMaxMs) < Number(config.telegram.retryBaseMs)
+  ) {
+    errors.push('telegram.retryMaxMs must not be smaller than telegram.retryBaseMs');
+  }
   if (!Array.isArray(config.providers) || config.providers.length === 0) {
     errors.push('at least one provider is required');
   }
@@ -79,6 +122,8 @@ function validateConfig(config) {
       'semanticExtractorModel',
       'semanticVerifierModel',
       'semanticHighRiskModel',
+      'embeddingModel',
+      'embeddingsUrl',
     ]) {
       if (provider[field] != null && !String(provider[field]).trim()) {
         errors.push(`providers[${index}].${field} must be a non-empty string when supplied`);
@@ -113,6 +158,9 @@ function validateConfig(config) {
     if (provider.adapter === 'openai-compatible' && !provider.baseUrl) {
       errors.push(`providers[${index}].baseUrl is required`);
     }
+    if (Boolean(provider.embeddingModel) !== Boolean(provider.embeddingsUrl)) {
+      errors.push(`providers[${index}] must declare embeddingModel and embeddingsUrl together`);
+    }
     if (provider.baseUrl) {
       try {
         const parsed = new URL(provider.baseUrl);
@@ -130,6 +178,33 @@ function validateConfig(config) {
         }
       } catch (_) {
         errors.push(`providers[${index}].baseUrl must use http or https`);
+      }
+    }
+    if (provider.embeddingsUrl) {
+      try {
+        const parsed = new URL(provider.embeddingsUrl);
+        const protocol = parsed.protocol;
+        if (!['http:', 'https:'].includes(protocol)) throw new Error('unsupported protocol');
+        if (parsed.username || parsed.password) {
+          errors.push(`providers[${index}].embeddingsUrl must not contain username or password credentials`);
+        }
+        const credentialQueryKeys = urlCredentialQueryKeys(parsed);
+        if (credentialQueryKeys.length) {
+          errors.push(`providers[${index}].embeddingsUrl must not contain credential query parameters: ${credentialQueryKeys.join(', ')}`);
+        }
+        if (protocol === 'http:' && !isLoopbackHostname(parsed.hostname)) {
+          errors.push(`providers[${index}].embeddingsUrl must use https unless the host is loopback`);
+        }
+      } catch (_) {
+        errors.push(`providers[${index}].embeddingsUrl must use http or https`);
+      }
+    }
+    for (const field of ['embeddingDimensions', 'embeddingTimeoutMs']) {
+      if (
+        provider[field] != null
+        && (!Number.isFinite(Number(provider[field])) || Number(provider[field]) <= 0)
+      ) {
+        errors.push(`providers[${index}].${field} must be a positive number`);
       }
     }
   }
@@ -175,6 +250,39 @@ function validateConfig(config) {
     ) {
       errors.push(`memory.semantic.${field} must be a positive number`);
     }
+  }
+  if (memory.semantic?.embeddings != null && !isObject(memory.semantic.embeddings)) {
+    errors.push('memory.semantic.embeddings must be an object');
+  }
+  const embeddings = isObject(memory.semantic?.embeddings)
+    ? memory.semantic.embeddings
+    : {};
+  if (embeddings.enabled === true && !(config.providers || []).some(
+    (provider) => provider.embeddingModel && provider.embeddingsUrl,
+  )) {
+    errors.push('memory.semantic.embeddings.enabled requires an embedding provider');
+  }
+  for (const field of [
+    'batchSize',
+    'topK',
+    'maxEmbeddingChars',
+    'maxRetrievedChars',
+    'maxBytes',
+  ]) {
+    if (
+      embeddings[field] != null
+      && (!Number.isFinite(Number(embeddings[field])) || Number(embeddings[field]) <= 0)
+    ) {
+      errors.push(`memory.semantic.embeddings.${field} must be a positive number`);
+    }
+  }
+  if (
+    embeddings.minScore != null
+    && (!Number.isFinite(Number(embeddings.minScore))
+      || Number(embeddings.minScore) < -1
+      || Number(embeddings.minScore) > 1)
+  ) {
+    errors.push('memory.semantic.embeddings.minScore must be between -1 and 1');
   }
   if (Array.isArray(config.entities)) {
     const entityIds = config.entities.map((entity) => String(entity?.entityId || '').trim());

@@ -9,10 +9,14 @@
     "node": ">=20"
   },
   "bin": {
-    "tether": "./bin/tether.cjs"
+    "tether": "./bin/tether.cjs",
+    "tether-memory": "./bin/tether-memory.cjs"
   },
   "scripts": {
     "start": "node ./bin/tether.cjs ./config.json",
+    "memory:status": "node ./bin/tether-memory.cjs status ./config.json",
+    "memory:rebuild": "node ./bin/tether-memory.cjs rebuild-semantic ./config.json",
+    "memory:backfill-vectors": "node ./bin/tether-memory.cjs backfill-vectors ./config.json",
     "test": "node ./test/offline.cjs && node ./test/layered-runtime.cjs",
     "verify:export": "node ./scripts/verify-export-lock.cjs"
   }

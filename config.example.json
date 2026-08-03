@@ -53,7 +53,16 @@
     "semantic": {
       "mode": "cards",
       "manifestMaxRecords": 50,
-      "manifestMaxBytes": 8388608
+      "manifestMaxBytes": 8388608,
+      "embeddings": {
+        "enabled": false,
+        "batchSize": 32,
+        "topK": 6,
+        "minScore": 0.25,
+        "maxEmbeddingChars": 12000,
+        "maxRetrievedChars": 2000,
+        "maxBytes": 67108864
+      }
     }
   },
   "telegram": {
@@ -62,7 +71,14 @@
     "allowedGroups": {},
     "noReplyGroupIds": [],
     "rateLimitedGroupIds": [],
-    "rateLimitStateDir": "./data/telegram-rate-limit"
+    "rateLimitStateDir": "./data/telegram-rate-limit",
+    "pollTimeoutSeconds": 30,
+    "pollRetryDelayMs": 1000,
+    "retryIntervalMs": 1000,
+    "maxAttempts": 6,
+    "retryBaseMs": 2000,
+    "retryMaxMs": 300000,
+    "durableInboxMaxBytes": 20971520
   },
   "providers": [
     {
@@ -76,7 +92,9 @@
       "memoryModel": "your-fast-model-id",
       "semanticExtractorModel": "your-fast-model-id",
       "semanticVerifierModel": "your-model-id",
-      "semanticHighRiskModel": "your-model-id"
+      "semanticHighRiskModel": "your-model-id",
+      "embeddingsUrl": "https://api.example.invalid/v1/embeddings",
+      "embeddingModel": "your-embedding-model-id"
     }
   ]
 }

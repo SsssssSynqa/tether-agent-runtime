@@ -15,6 +15,7 @@ async function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tether-layered-runtime-'));
   try {
     const calls = [];
+    const embeddingCalls = [];
     const provider = {
       async respond({ messages, purpose = 'chat' }) {
         calls.push({ purpose, messages: structuredClone(messages) });
@@ -91,6 +92,14 @@ async function main() {
         const user = messages.filter((message) => message.role === 'user').at(-1);
         return { text: `reply:${user.content}`, providerId: 'offline-chat' };
       },
+      async embed({ texts, purpose }) {
+        embeddingCalls.push({ texts: [...texts], purpose });
+        return {
+          vectors: texts.map(() => [1, 0, 0]),
+          providerId: 'offline-embedding',
+          model: 'offline-vector-v1',
+        };
+      },
     };
     const memoryDirectory = path.join(root, 'memory');
     const memoryOptions = {
@@ -108,6 +117,10 @@ async function main() {
         minimumRawTailRounds: 1,
         roundsBudget: 1,
         cards: { enabled: true, policy: 'lossless' },
+        semantic: {
+          mode: 'cards',
+          embeddings: { enabled: true, batchSize: 32, minScore: -1 },
+        },
       },
       log: () => {},
     };
@@ -163,6 +176,11 @@ async function main() {
     assert(calls.some((call) => call.purpose === 'semantic-extract'));
     assert(calls.some((call) => call.purpose === 'semantic-verify'));
     assert(calls.some((call) => call.purpose === 'semantic-high-risk'));
+    assert(embeddingCalls.some((call) => call.purpose === 'memory-embedding'));
+    assert(embeddingCalls.some((call) => call.purpose === 'memory-query'));
+    assert(chatCalls[1].messages.some(
+      (message) => String(message.content).includes('[Tether query-relevant verified memory]'),
+    ));
 
     const transcript = fs.readFileSync(path.join(memoryDirectory, 'transcript.jsonl'), 'utf8')
       .trim().split('\n').map((line) => JSON.parse(line));
@@ -182,6 +200,11 @@ async function main() {
     assert(memory.semantic.store.projections().some(
       (projection) => projection.status === 'accepted',
     ));
+    assert.equal(memory.vectorStatus().missingDocuments, 0);
+    const rebuild = await memory.rebuildSemanticQueue({ queueClass: 'rebuild-priority' });
+    assert.equal(rebuild.turns, 3);
+    assert.equal(rebuild.queued, 0);
+    assert(rebuild.duplicates >= 3);
     assert.equal(memory.history.transcriptProof().memorySourceCount, 3);
     const stored = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
     assert.equal(memory.verifySession(stored.sessionId, { expectedProof: stored.memoryProof }).passed, true);

@@ -121,9 +121,12 @@ class TetherRuntime {
     this.session.checkpoint(result.proof);
   }
 
-  _providerMessages(user) {
+  async _providerMessages(user) {
     if (this.layeredMemory) {
-      return this.memory.buildMessages({
+      const builder = typeof this.memory.buildMessagesAsync === 'function'
+        ? this.memory.buildMessagesAsync.bind(this.memory)
+        : this.memory.buildMessages.bind(this.memory);
+      return (await builder({
         personaPrompt: this.personaPrompt,
         userText: user.text,
         request: {
@@ -131,7 +134,7 @@ class TetherRuntime {
           chatId: user.metadata?.chatId || user.channelId,
           causalIds: user.metadata?.causalId ? [user.metadata.causalId] : [],
         },
-      }).messages;
+      })).messages;
     }
     const compiled = this.memory.compileContext({
       rawTailMessages: this.rawTailMessages,
@@ -172,6 +175,10 @@ class TetherRuntime {
         outputId: started.output.outputId,
       });
     } catch (error) {
+      if (error?.deliveryAmbiguous === true) {
+        error.manualRetryOnly = true;
+        throw error;
+      }
       this.causal.markDeliveryFailed(causalRecord.causalId, error);
       throw error;
     }
@@ -270,7 +277,7 @@ class TetherRuntime {
         }).record;
     if (!this.layeredMemory) this._checkpoint(state.sessionId);
     causalRecord = this.causal.markInferenceStarted(causalRecord.causalId);
-    const messages = this._providerMessages({
+    const messages = await this._providerMessages({
       ...user,
       metadata: { ...(user.metadata || {}), causalId: causalRecord.causalId },
     });

@@ -46,6 +46,7 @@ class ConsoleService:
                 "week_cards": sum(item["layer"] == "week" for item in cards),
                 **semantic["counts"],
             },
+            "embedding": semantic["embedding"],
             "integrity": {
                 "healthy": health["healthy"],
                 "issue_count": health["issue_count"],
@@ -68,14 +69,15 @@ class ConsoleService:
         )
 
     def semantic(self, kind: str = "all") -> dict:
-        if kind not in {"all", "claims", "events", "projections", "reviews", "queue"}:
-            raise ValueError("kind must be all, claims, events, projections, reviews, or queue")
+        if kind not in {"all", "claims", "events", "projections", "reviews", "queue", "vectors"}:
+            raise ValueError("kind must be all, claims, events, projections, reviews, queue, or vectors")
         payload = semantic_public(semantic_state(self.settings.semantic_dir))
         if kind == "all":
             return payload
         return {
             "mode": payload["mode"],
             "schema_version": payload["schema_version"],
+            "embedding": payload["embedding"],
             "kind": kind,
             "count": len(payload[kind]),
             "items": payload[kind],

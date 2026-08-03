@@ -145,6 +145,47 @@ def memory_store(tmp_path):
             "updatedAt": "2026-01-02T09:07:00Z",
         },
     )
+    (semantic / "embedding-state.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "enabled": True,
+                "totalDocuments": 3,
+                "indexedDocuments": 2,
+                "missingDocuments": 1,
+                "storedVectors": 2,
+                "updatedAt": "2026-01-02T09:08:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    _jsonl(
+        semantic / "embeddings.jsonl",
+        {
+            "schemaVersion": 1,
+            "recordId": day_card["id"],
+            "kind": "card:day",
+            "title": "Day card · 2026-01-02",
+            "contentSha256": "c" * 64,
+            "vector": [0.125, 0.25, -0.5],
+            "dimensions": 3,
+            "providerId": "sample-embedding-provider",
+            "model": "sample-embedding-model",
+            "updatedAt": "2026-01-02T09:08:00Z",
+        },
+        {
+            "schemaVersion": 1,
+            "recordId": claim["claimId"],
+            "kind": "claim",
+            "title": "Naming claim",
+            "contentSha256": "d" * 64,
+            "vector": [-0.375, 0.625, 0.75],
+            "dimensions": 3,
+            "providerId": "sample-embedding-provider",
+            "model": "sample-embedding-model",
+            "updatedAt": "2026-01-02T09:09:00Z",
+        },
+    )
     _jsonl(
         semantic / "compile-manifests.jsonl",
         {
@@ -180,6 +221,15 @@ def test_status_exposes_counts_and_aliases_without_host_paths(client, memory_sto
     assert body["counts"]["queue_total"] == 4
     assert body["counts"]["queue_actionable"] == 2
     assert body["counts"]["queue_human_review"] == 1
+    assert body["counts"]["stored_vectors"] == 2
+    assert body["embedding"] == {
+        "enabled": True,
+        "total_documents": 3,
+        "indexed_documents": 2,
+        "missing_documents": 1,
+        "stored_vectors": 2,
+        "updated_at": "2026-01-02T09:08:00Z",
+    }
     assert body["integrity"] == {"healthy": True, "issue_count": 0}
     serialized = response.text
     assert str(memory_store[0]) not in serialized
@@ -221,6 +271,19 @@ def test_semantic_keeps_claim_event_projection_and_review_separate(client):
     semantic_response = client.get("/api/semantic")
     assert "lastError" not in semantic_response.text
     assert "must stay private" not in semantic_response.text
+    vectors = client.get("/api/semantic?kind=vectors").json()
+    assert vectors["count"] == 2
+    assert vectors["items"][0] == {
+        "recordId": "claim:sample-001",
+        "kind": "claim",
+        "title": "Naming claim",
+        "dimensions": 3,
+        "providerId": "sample-embedding-provider",
+        "model": "sample-embedding-model",
+        "updatedAt": "2026-01-02T09:09:00Z",
+    }
+    assert '"vector":' not in semantic_response.text
+    assert "c" * 64 not in semantic_response.text
 
 
 def test_current_context_sources_and_integrity_are_inspectable(client):

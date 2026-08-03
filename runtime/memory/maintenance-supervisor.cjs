@@ -13,6 +13,7 @@ function resultDidWork(result) {
     result?.status,
     result?.semantic?.status,
     result?.cards?.status,
+    result?.vectors?.status,
   ].map((value) => String(value || ''));
   return statuses.some((status) => [
     'generated',

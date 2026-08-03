@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const readline = require('node:readline');
 
 // In the production source tree the canonical modules live at the repository
 // root. In an exported Tether snapshot they are exact-byte siblings of this
@@ -23,7 +24,9 @@ const {
 } = require(path.join(localModuleRoot, 'semantic-memory-model-adapter.js'));
 const {
   SemanticMemoryManager,
+  projectionText,
 } = require(path.join(localModuleRoot, 'semantic-memory-manager.js'));
+const { VectorMemoryIndex } = require('./vector-memory.cjs');
 
 function memoryPolicyFromConfig({ agent = {}, owner = {}, addressPolicy = {}, memory = {} } = {}) {
   return normalizeMemoryPolicy({
@@ -219,6 +222,21 @@ class LayeredMemory {
       memoryPolicy: this.policy,
       log,
     });
+    const embeddingOptions = semantic.embeddings || {};
+    this.vectors = new VectorMemoryIndex({
+      directory: path.join(this.directory, 'semantic'),
+      embed: typeof this.provider.embed === 'function'
+        ? (request) => this.provider.embed(request)
+        : null,
+      enabled: embeddingOptions.enabled === true,
+      batchSize: embeddingOptions.batchSize,
+      topK: embeddingOptions.topK,
+      minScore: embeddingOptions.minScore,
+      maxEmbeddingChars: embeddingOptions.maxEmbeddingChars,
+      maxRetrievedChars: embeddingOptions.maxRetrievedChars,
+      maxBytes: embeddingOptions.maxBytes,
+      log,
+    });
   }
 
   getData() { return this.history.getData(); }
@@ -260,6 +278,94 @@ class LayeredMemory {
     };
   }
 
+  _vectorDocuments() {
+    const documents = this.cards.store.effectiveCards().map((card) => ({
+      recordId: String(card.id),
+      kind: `card:${card.cardType}`,
+      title: card.title || `${card.cardType}:${card.period?.key || ''}`,
+      text: String(card.content || ''),
+      metadata: {
+        periodKey: card.period?.key || null,
+        sourceIds: uniqueStrings(card.sourceIds),
+      },
+    }));
+    if (!this.semantic) return documents;
+    for (const claim of this.semantic.store.claims()) {
+      if (claim.verificationStatus !== 'supported') continue;
+      documents.push({
+        recordId: String(claim.claimId),
+        kind: 'claim',
+        title: claim.kind || 'claim',
+        text: String(claim.content || claim.objectLiteral || ''),
+        metadata: { packetId: claim.packetId || null },
+      });
+    }
+    for (const event of this.semantic.store.events()) {
+      if (event.status !== 'accepted') continue;
+      documents.push({
+        recordId: String(event.eventId),
+        kind: 'event',
+        title: event.title || 'event',
+        text: [event.title, event.summary, event.description].filter(Boolean).join('\n'),
+        metadata: { packetId: event.packetId || null },
+      });
+    }
+    for (const projection of this.semantic.store.projections()) {
+      if (projection.status !== 'accepted' || projection.stale === true) continue;
+      documents.push({
+        recordId: String(projection.projectionId),
+        kind: `projection:${projection.projectionType || 'memory'}`,
+        title: projection.title || projection.projectionType || 'projection',
+        text: projectionText(projection),
+        metadata: { periodKey: projection.period?.key || null },
+      });
+    }
+    return documents;
+  }
+
+  async buildMessagesAsync(options = {}) {
+    const built = this.buildMessages(options);
+    if (!this.vectors.enabled || !String(options.userText || '').trim()) return built;
+    try {
+      const matches = await this.vectors.search(options.userText, this._vectorDocuments());
+      if (!matches.length) return { ...built, vectorMatches: [] };
+      const retrieval = [
+        '[Tether query-relevant verified memory]',
+        ...matches.map((match) => (
+          `- ${match.title || match.kind} (${match.recordId}, score ${match.score.toFixed(4)})\n`
+          + `${match.text}`
+        )),
+      ].join('\n');
+      const messages = built.messages.map((message) => ({ ...message }));
+      const systemIndex = messages.findIndex((message) => message.role === 'system');
+      if (systemIndex >= 0) {
+        messages[systemIndex].content = `${messages[systemIndex].content}\n\n${retrieval}`;
+      } else {
+        messages.unshift({ role: 'system', content: retrieval });
+      }
+      return {
+        ...built,
+        messages,
+        vectorMatches: matches.map((match) => ({
+          recordId: match.recordId,
+          kind: match.kind,
+          score: match.score,
+        })),
+      };
+    } catch (error) {
+      this.log(`[tether] vector recall unavailable; layered cards remain active: ${error.message}`);
+      return { ...built, vectorMatches: [], vectorError: true };
+    }
+  }
+
+  vectorStatus() {
+    return this.vectors.status(this._vectorDocuments());
+  }
+
+  backfillVectors() {
+    return this.vectors.backfillAll(this._vectorDocuments());
+  }
+
   appendTurn(userText, assistantText, metadata = {}) {
     return this.history.appendTurn(userText, assistantText, metadata);
   }
@@ -284,8 +390,7 @@ class LayeredMemory {
     return this.policy.owner.entityId;
   }
 
-  _enqueueSemanticTurn(userText, assistantText, metadata = {}) {
-    if (!this.semantic?.enabled()) return null;
+  _semanticPacketInput(userText, assistantText, metadata = {}) {
     const causalIds = uniqueStrings(metadata.causalIds);
     const turnKey = causalIds[0]
       || crypto.createHash('sha256')
@@ -334,12 +439,107 @@ class LayeredMemory {
       ingestionCursor: `${turnKey}:assistant`,
       attachmentRefs: [],
     }];
-    return this.semantic.enqueue({
+    return {
+      ...(metadata.semanticPacketId ? { packetId: String(metadata.semanticPacketId) } : {}),
       rawMessages,
       source,
       cursorStart: `${turnKey}:input`,
       cursorEnd: `${turnKey}:assistant`,
-    }).packetId;
+    };
+  }
+
+  _enqueueSemanticTurn(userText, assistantText, metadata = {}) {
+    if (!this.semantic?.enabled()) return null;
+    return this.semantic.enqueue(
+      this._semanticPacketInput(userText, assistantText, metadata),
+    ).packetId;
+  }
+
+  async rebuildSemanticQueue({ queueClass = 'historical', batchSize = 100 } = {}) {
+    if (!this.semantic?.enabled()) throw new Error('Semantic memory is disabled');
+    if (!['live', 'rebuild-priority', 'historical'].includes(queueClass)) {
+      throw new Error(`Unknown semantic rebuild queueClass: ${queueClass}`);
+    }
+    let queued = 0;
+    let duplicates = 0;
+    let sourceDuplicates = 0;
+    let promoted = 0;
+    let turns = 0;
+    let lineNumber = 0;
+    let batch = [];
+    const flush = () => {
+      if (!batch.length) return;
+      const result = this.semantic.enqueueMany(batch, { queueClass });
+      queued += Number(result.queued || 0);
+      duplicates += Number(result.duplicates || 0);
+      sourceDuplicates += Number(result.sourceDuplicates || 0);
+      promoted += Number(result.promoted || 0);
+      batch = [];
+    };
+    let stream;
+    try {
+      stream = fs.createReadStream(this.history.transcriptFile, { encoding: 'utf8' });
+      const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
+      for await (const line of lines) {
+        lineNumber += 1;
+        if (!line.trim()) continue;
+        let entry;
+        try { entry = JSON.parse(line); } catch (error) {
+          const failure = new Error(`Transcript is corrupt at line ${lineNumber}`);
+          failure.code = 'TETHER_TRANSCRIPT_CORRUPT';
+          failure.line = lineNumber;
+          throw failure;
+        }
+        if (entry?.type !== 'turn') continue;
+        turns += 1;
+        batch.push(this._semanticPacketInput(entry.user, entry.assistant, {
+          causalIds: entry.causalIds || [],
+          source: entry.source || 'transcript-rebuild',
+          trustZone: entry.trustZone || null,
+          chatId: entry.chatId || null,
+          senderId: entry.senderId || null,
+          sourceMessageId: entry.sourceMessageId || null,
+          semanticPacketId: entry.semanticPacketId || null,
+          receivedAt: entry.at || null,
+          completedAt: entry.at || null,
+          attachmentRefs: (Array.isArray(entry.sourceParts) ? entry.sourceParts : []).map(
+            (part) => part?.archivePath || part?.path || part?.sha256,
+          ),
+        }));
+        if (batch.length >= Math.max(1, Number(batchSize) || 100)) flush();
+      }
+      flush();
+    } catch (error) {
+      if (error.code === 'ENOENT') return { status: 'empty', turns: 0, queued: 0 };
+      throw error;
+    } finally {
+      stream?.destroy();
+    }
+    return {
+      status: 'queued',
+      turns,
+      queued,
+      duplicates,
+      sourceDuplicates,
+      promoted,
+      queueClass,
+    };
+  }
+
+  status() {
+    return {
+      semantic: this.semantic
+        ? {
+            mode: this.semantic.mode,
+            queue: this.semantic.queueStatus(),
+            claims: this.semantic.store.claims().length,
+            events: this.semantic.store.events().length,
+            projections: this.semantic.store.projections().length,
+          }
+        : { mode: 'off', queue: { total: 0, actionable: 0, counts: {} } },
+      vectors: this.vectorStatus(),
+      transcript: this.history.transcriptProof(),
+    };
   }
 
   async ensureTurn(userText, assistantText, metadata = {}) {
@@ -372,6 +572,7 @@ class LayeredMemory {
     const failures = [];
     let semantic = { status: 'disabled' };
     let cards = { status: 'disabled' };
+    let vectors = { status: 'disabled' };
     try {
       if (this.semantic) semantic = await this.semantic.maintainOne();
     } catch (error) {
@@ -382,10 +583,15 @@ class LayeredMemory {
     } catch (error) {
       failures.push(error);
     }
+    try {
+      vectors = await this.vectors.maintainOne(this._vectorDocuments());
+    } catch (error) {
+      failures.push(error);
+    }
     if (failures.length) {
       throw new AggregateError(failures, 'One or more layered memory maintenance jobs failed');
     }
-    return { status: 'completed', semantic, cards };
+    return { status: 'completed', semantic, cards, vectors };
   }
 
   sessionProof() {
@@ -404,6 +610,7 @@ class LayeredMemory {
       path.join(this.directory, 'cards', 'human-overrides.jsonl'),
       path.join(this.directory, 'semantic', 'inbox.jsonl'),
       path.join(this.directory, 'semantic', 'packets.jsonl'),
+      path.join(this.directory, 'semantic', 'embeddings.jsonl'),
       // Files from the pre-layered public preview must block silent creation;
       // the migration command handles them explicitly instead.
       path.join(this.directory, 'summaries.jsonl'),

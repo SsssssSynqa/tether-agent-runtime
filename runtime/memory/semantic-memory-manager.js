@@ -507,6 +507,16 @@ class SemanticMemoryManager {
     return [...this._queueIndex().latest.values()];
   }
 
+  queueStatus() {
+    const index = this._queueIndex();
+    return {
+      total: index.latest.size,
+      actionable: index.actionablePacketIds.size,
+      counts: Object.fromEntries(index.counts),
+      earliestRetryAt: this.earliestPendingRetryAt(),
+    };
+  }
+
   _queueIndex() {
     const current = queueFileStatSignature(this.queueFile);
     if (

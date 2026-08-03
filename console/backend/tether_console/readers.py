@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -78,6 +79,59 @@ def latest_by(records: Iterable[dict[str, Any]], id_field: str) -> dict[str, dic
         if isinstance(record_id, str) and record_id:
             result[record_id] = dict(record)
     return result
+
+
+def vector_records(path: Path) -> dict[str, dict[str, Any]]:
+    """Load the private vector journal while returning only metadata later.
+
+    The Console still validates the vector payload so a corrupt journal cannot
+    masquerade as healthy, but the numeric vector itself never crosses the API
+    boundary.
+    """
+
+    latest: dict[str, dict[str, Any]] = {}
+    for line_number, record in enumerate(strict_jsonl(path), start=1):
+        record_id = record.get("recordId")
+        vector = record.get("vector")
+        dimensions = record.get("dimensions")
+        if not isinstance(record_id, str) or not record_id:
+            raise StoreCorrupt(path.name, line_number, "vector record lacks recordId")
+        if (
+            not isinstance(vector, list)
+            or not vector
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                for value in vector
+            )
+        ):
+            raise StoreCorrupt(path.name, line_number, "invalid vector payload")
+        if not isinstance(dimensions, int) or isinstance(dimensions, bool) or dimensions != len(vector):
+            raise StoreCorrupt(path.name, line_number, "vector dimensions do not match payload")
+        latest[record_id] = record
+    return latest
+
+
+def embedding_state(semantic_dir: Path, stored_vectors: int) -> dict[str, Any]:
+    raw = strict_json(semantic_dir / "embedding-state.json", {})
+    if not isinstance(raw, dict):
+        raise StoreCorrupt("embedding-state.json", None, "root is not an object")
+
+    def count(name: str, fallback: int = 0) -> int:
+        value = raw.get(name, fallback)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise StoreCorrupt("embedding-state.json", None, f"{name} is not a non-negative integer")
+        return value
+
+    return {
+        "enabled": raw.get("enabled") is True,
+        "total_documents": count("totalDocuments"),
+        "indexed_documents": count("indexedDocuments"),
+        "missing_documents": count("missingDocuments"),
+        "stored_vectors": count("storedVectors", stored_vectors),
+        "updated_at": raw.get("updatedAt") if isinstance(raw.get("updatedAt"), str) else None,
+    }
 
 
 def record_time(record: dict[str, Any]) -> str | None:
@@ -340,6 +394,7 @@ def semantic_state(semantic_dir: Path) -> dict[str, Any]:
         raise StoreCorrupt("manifest.json", None, "root is not an object")
     entities_raw = strict_json(semantic_dir / "entities.json", {"entities": []})
     entities = entities_raw.get("entities", []) if isinstance(entities_raw, dict) else entities_raw
+    vectors = vector_records(semantic_dir / "embeddings.jsonl")
     state = {
         "manifest": manifest,
         "claims": latest_by(strict_jsonl(semantic_dir / "claims.jsonl"), "claimId"),
@@ -348,6 +403,8 @@ def semantic_state(semantic_dir: Path) -> dict[str, Any]:
         "reviews": latest_by(strict_jsonl(semantic_dir / "packet-reviews.jsonl"), "packetId"),
         "packets": latest_by(strict_jsonl(semantic_dir / "packets.jsonl"), "packetId"),
         "queue": latest_by(strict_jsonl(semantic_dir / "inbox.jsonl"), "packetId"),
+        "vectors": vectors,
+        "embedding": embedding_state(semantic_dir, len(vectors)),
         "patches": strict_jsonl(semantic_dir / "patches.jsonl"),
         "entities": {
             str(item.get("entityId")): item
@@ -390,6 +447,22 @@ def semantic_public(state: dict[str, Any]) -> dict[str, Any]:
             "completed",
         )
     }
+    vectors = sorted(
+        (
+            {
+                "recordId": item.get("recordId"),
+                "kind": item.get("kind") or "memory",
+                "title": item.get("title"),
+                "dimensions": item.get("dimensions"),
+                "providerId": item.get("providerId"),
+                "model": item.get("model"),
+                "updatedAt": item.get("updatedAt"),
+            }
+            for item in state["vectors"].values()
+        ),
+        key=lambda item: record_time(item) or "",
+        reverse=True,
+    )
     return {
         "mode": state["manifest"].get("mode") or "off",
         "schema_version": state["manifest"].get("schemaVersion"),
@@ -413,12 +486,16 @@ def semantic_public(state: dict[str, Any]) -> dict[str, Any]:
                 + queue_counts["retry"]
                 + queue_counts["partial_review_pending"]
             ),
+            "vectors": len(vectors),
+            "stored_vectors": state["embedding"]["stored_vectors"],
         },
         "claims": claims,
         "events": events,
         "projections": projections,
         "reviews": reviews,
         "queue": queue,
+        "vectors": vectors,
+        "embedding": state["embedding"],
     }
 
 

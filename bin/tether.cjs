@@ -3,6 +3,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const path = require('node:path');
 const { loadTetherConfig } = require('../runtime/config-loader.cjs');
 const { LayeredMemory } = require('../runtime/memory/layered-memory.cjs');
@@ -15,15 +16,26 @@ const { TetherRuntime } = require('../runtime/tether-runtime.cjs');
 const { createTerminalChannel } = require('../runtime/channels/terminal.cjs');
 const {
   createFileOffsetStore,
+  createDurableUpdateHandler,
   createTelegramApi,
   createTelegramChannel,
 } = require('../runtime/channels/telegram.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
 
+function durableModule(name) {
+  const publicRuntimePath = path.join(__dirname, '..', 'runtime', 'durable', name);
+  const canonicalSourcePath = path.join(__dirname, '..', name);
+  return require(fs.existsSync(publicRuntimePath) ? publicRuntimePath : canonicalSourcePath);
+}
+
+const { DurableInbox } = durableModule('durable-inbox.js');
+const { createDurableDispatcher } = durableModule('durable-dispatcher.js');
+
 let instanceLock = null;
 let memoryRuntime = null;
 let maintenanceSupervisor = null;
 let telegramChannel = null;
+let telegramDispatcher = null;
 let terminalInterface = null;
 let resourcesReleased = false;
 
@@ -49,11 +61,13 @@ function releaseResources() {
   resourcesReleased = true;
   try { maintenanceSupervisor?.stop(); } catch (_) { /* shutdown is best effort */ }
   try { telegramChannel?.stop(); } catch (_) { /* shutdown is best effort */ }
+  try { telegramDispatcher?.stop(); } catch (_) { /* shutdown is best effort */ }
   try { terminalInterface?.close(); } catch (_) { /* shutdown is best effort */ }
   try { memoryRuntime?.close(); } catch (_) { /* shutdown is best effort */ }
   try { instanceLock?.release(); } catch (_) { /* process shutdown is best effort */ }
   maintenanceSupervisor = null;
   telegramChannel = null;
+  telegramDispatcher = null;
   terminalInterface = null;
   memoryRuntime = null;
   instanceLock = null;
@@ -83,6 +97,10 @@ async function main() {
       semanticExtractorModel: provider.semanticExtractorModel,
       semanticVerifierModel: provider.semanticVerifierModel,
       semanticHighRiskModel: provider.semanticHighRiskModel,
+      embeddingsUrl: provider.embeddingsUrl,
+      embeddingModel: provider.embeddingModel,
+      embeddingDimensions: provider.embeddingDimensions,
+      embeddingTimeoutMs: provider.embeddingTimeoutMs,
       maxTokens: provider.maxTokens,
       foldMaxTokens: provider.foldMaxTokens,
       memoryMaxTokens: provider.memoryMaxTokens,
@@ -145,9 +163,40 @@ async function main() {
       rateLimitedGroupIds: config.telegram.rateLimitedGroupIds || [],
       rateLimitStateDir: config.telegram.rateLimitStateDir || null,
       offsetStore: createFileOffsetStore(path.join(config.storage.root, 'telegram-offset.txt')),
+      pollTimeoutSeconds: config.telegram.pollTimeoutSeconds,
+      pollRetryDelayMs: config.telegram.pollRetryDelayMs,
     });
     telegramChannel = telegram;
     runtime.attach(telegram);
+    const durableInbox = new DurableInbox({
+      filePath: path.join(config.storage.root, 'telegram-inbox.jsonl'),
+      maxBytes: config.telegram.durableInboxMaxBytes,
+      maxAttempts: config.telegram.maxAttempts,
+      retryBaseMs: config.telegram.retryBaseMs,
+      retryMaxMs: config.telegram.retryMaxMs,
+    });
+    const dispatcher = createDurableDispatcher({
+      inbox: durableInbox,
+      dispatchUpdate: (update) => telegram.ingestUpdate(update),
+      dispatchGroupBatch: async (record) => {
+        for (const updateId of record.updateIds || []) {
+          const update = durableInbox.getState(updateId)?.update;
+          if (update) await telegram.ingestUpdate(update);
+        }
+      },
+      notifyDeadLetter: async (record) => {
+        console.error(`[tether] Telegram update entered dead-letter: ${record.updateId}`);
+      },
+      retryIntervalMs: config.telegram.retryIntervalMs,
+    });
+    telegramDispatcher = dispatcher;
+    telegram.onUpdate(createDurableUpdateHandler({
+      channel: telegram,
+      inbox: durableInbox,
+      dispatcher,
+    }));
+    await dispatcher.replayAll();
+    dispatcher.start();
     telegram.start().catch((error) => {
       reportFailure('telegram', error);
       process.exitCode = 1;

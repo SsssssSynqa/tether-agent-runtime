@@ -20,13 +20,22 @@ const { createMemoryChannel } = require('../runtime/channels/memory-channel.cjs'
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
 const { validateMemoryBundle } = require('../runtime/memory/semantic-memory-validators.js');
 const { SemanticMemoryStore } = require('../runtime/memory/semantic-memory-store.js');
+const {
+  VectorMemoryIndex,
+  cosineSimilarity,
+} = require('../runtime/memory/vector-memory.cjs');
 const { DurableInbox } = require('../runtime/durable/durable-inbox.js');
+const { createDurableDispatcher } = require('../runtime/durable/durable-dispatcher.js');
+const { classifyDurableError } = require('../runtime/durable/durable-error-policy.js');
 const { sendWithGroupRateLimit } = require('../lib/telegram/group-rate-limit.cjs');
 const {
   createFileOffsetStore,
+  createDurableUpdateHandler,
   createTelegramApi,
   createTelegramChannel,
   normalizeTelegramUpdate,
+  splitTelegramText,
+  telegramRequestTimeoutMs,
 } = require('../runtime/channels/telegram.cjs');
 const { loadTetherConfig, validateConfig } = require('../runtime/config-loader.cjs');
 const {
@@ -39,6 +48,7 @@ const { CausalJournal } = require('../runtime/causal-journal.cjs');
 const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
 const { findStaleManagedPaths } = require('../scripts/export-public-snapshot.cjs');
 const { verifyFileLock } = require('../scripts/verify-export-lock.cjs');
+const { usage: memoryCommandUsage } = require('../bin/tether-memory.cjs');
 
 function loadSharedMemoryModule(filename) {
   const sourcePath = path.join(__dirname, '..', filename);
@@ -241,6 +251,30 @@ async function main() {
         providers: [providerConfig()],
       }),
       /memory.semantic.mode/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        telegram: { retryBaseMs: 2000, retryMaxMs: 1000 },
+        providers: [providerConfig()],
+      }),
+      /telegram.retryMaxMs/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        telegram: { tokenEnv: 'not-an-env-name' },
+        providers: [providerConfig()],
+      }),
+      /telegram.tokenEnv/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        memory: { semantic: { embeddings: { enabled: true } } },
+        providers: [providerConfig()],
+      }),
+      /requires an embedding provider/,
     );
     const headerEnvConfigPath = path.join(root, 'header-env-config.json');
     fs.writeFileSync(headerEnvConfigPath, JSON.stringify({
@@ -779,6 +813,73 @@ async function main() {
       source: 'synthetic-fixture', ingestionCursor: 1,
     }).replayed, true, 'semantic commits must be idempotent');
 
+    assert.equal(cosineSimilarity([1, 0], [1, 0]), 1);
+    assert.equal(cosineSimilarity([1, 0], [0, 1]), 0);
+    assert.match(memoryCommandUsage(), /backfill-vectors/);
+    const vectorDirectory = path.join(root, 'vector-memory');
+    const vectorCalls = [];
+    const vectorIndex = new VectorMemoryIndex({
+      directory: vectorDirectory,
+      enabled: true,
+      batchSize: 2,
+      minScore: -1,
+      embed: async ({ texts, purpose }) => {
+        vectorCalls.push({ texts: [...texts], purpose });
+        return {
+          vectors: texts.map((text) => (
+            String(text).toLowerCase().includes('amber') ? [1, 0] : [0, 1]
+          )),
+          providerId: 'offline-embedding',
+          model: 'offline-vector-v1',
+        };
+      },
+      log: () => {},
+    });
+    const vectorDocuments = [
+      { recordId: 'claim:amber', kind: 'claim', title: 'Amber', text: 'The signal remains amber.' },
+      { recordId: 'claim:blue', kind: 'claim', title: 'Blue', text: 'The archive is blue.' },
+    ];
+    assert.equal(vectorIndex.status(vectorDocuments).missingDocuments, 2);
+    assert.equal((await vectorIndex.maintainOne(vectorDocuments)).generated, 2);
+    assert.equal(vectorIndex.status(vectorDocuments).missingDocuments, 0);
+    const embeddingState = JSON.parse(fs.readFileSync(
+      path.join(vectorDirectory, 'embedding-state.json'),
+      'utf8',
+    ));
+    assert.deepEqual(
+      {
+        enabled: embeddingState.enabled,
+        totalDocuments: embeddingState.totalDocuments,
+        indexedDocuments: embeddingState.indexedDocuments,
+        missingDocuments: embeddingState.missingDocuments,
+        storedVectors: embeddingState.storedVectors,
+      },
+      {
+        enabled: true,
+        totalDocuments: 2,
+        indexedDocuments: 2,
+        missingDocuments: 0,
+        storedVectors: 2,
+      },
+    );
+    assert.equal(fs.statSync(path.join(vectorDirectory, 'embedding-state.json')).mode & 0o777, 0o600);
+    const vectorMatches = await vectorIndex.search('amber continuity', vectorDocuments);
+    assert.equal(vectorMatches[0].recordId, 'claim:amber');
+    assert.equal(vectorCalls.at(-1).purpose, 'memory-query');
+    const changedVectorDocuments = [
+      { ...vectorDocuments[0], text: 'The signal remains amber forever.' },
+      vectorDocuments[1],
+    ];
+    assert.equal(vectorIndex.status(changedVectorDocuments).missingDocuments, 1);
+    assert.equal((await vectorIndex.backfillAll(changedVectorDocuments)).final.missingDocuments, 0);
+    const corruptVectorDirectory = path.join(root, 'corrupt-vector-memory');
+    fs.mkdirSync(corruptVectorDirectory);
+    fs.writeFileSync(path.join(corruptVectorDirectory, 'embeddings.jsonl'), '{bad\n');
+    assert.throws(
+      () => new VectorMemoryIndex({ directory: corruptVectorDirectory }),
+      (error) => error.code === 'TETHER_VECTOR_CORRUPT' && error.line === 1,
+    );
+
     const inboxPath = path.join(root, 'nested-durable', 'durable.jsonl');
     const inbox = new DurableInbox({ filePath: inboxPath, log: () => {} });
     assert.equal(inbox.receive({ update_id: 1, message: { chat: { id: 7, type: 'private' }, text: 'hello' } }), true);
@@ -786,6 +887,97 @@ async function main() {
     inbox.markDone(1);
     assert.equal(inbox.isDone(1), true);
     assert.equal(fs.statSync(path.dirname(inboxPath)).mode & 0o777, 0o700);
+    const editedInbox = new DurableInbox({
+      filePath: path.join(root, 'edited-durable.jsonl'),
+      log: () => {},
+    });
+    const editedRawUpdate = {
+      update_id: 2,
+      edited_message: { chat: { id: 7, type: 'private' }, text: 'edited' },
+    };
+    assert.equal(editedInbox.chatIdForUpdate(editedRawUpdate), '7');
+    assert.equal(editedInbox.receive(editedRawUpdate), true);
+    assert.equal(editedInbox.chatIdForEntry(editedInbox.getState(2)), '7');
+
+    assert.deepEqual(splitTelegramText('x'.repeat(4097)).map((chunk) => chunk.length), [4096, 1]);
+    assert.deepEqual(splitTelegramText('😀'.repeat(4097)).map((chunk) => Array.from(chunk).length), [4096, 1]);
+    assert.equal(telegramRequestTimeoutMs('sendMessage'), 40_000);
+    assert.equal(telegramRequestTimeoutMs('getUpdates', { timeout: 30 }), 45_000);
+
+    const durableTelegramRoot = path.join(root, 'durable-telegram');
+    const durableTelegramInbox = new DurableInbox({
+      filePath: path.join(durableTelegramRoot, 'inbox.jsonl'),
+      log: () => {},
+    });
+    const durableDispatches = [];
+    const durableTelegram = createTelegramChannel({
+      api: {
+        calls: 0,
+        async call() {
+          this.calls += 1;
+          return this.calls === 1
+            ? {
+                ok: true,
+                result: [{
+                  update_id: 25,
+                  message: {
+                    message_id: 5,
+                    text: 'persist before offset',
+                    from: { id: 11 },
+                    chat: { id: 12, type: 'private' },
+                  },
+                }],
+              }
+            : { ok: true, result: [] };
+        },
+        async sendMessage() { return { ok: true, result: { message_id: 1 } }; },
+      },
+      ownerIds: ['11'],
+      offsetStore: createFileOffsetStore(path.join(durableTelegramRoot, 'offset.txt')),
+      pollTimeoutSeconds: 0,
+      log: () => {},
+    });
+    durableTelegram.onMessage(async () => ({ ignored: true }));
+    const durableDispatcher = createDurableDispatcher({
+      inbox: durableTelegramInbox,
+      dispatchUpdate: async (update) => { durableDispatches.push(update.update_id); },
+      dispatchGroupBatch: async () => {},
+      log: () => {},
+    });
+    const durableUpdateHandler = createDurableUpdateHandler({
+      channel: durableTelegram,
+      inbox: durableTelegramInbox,
+      dispatcher: durableDispatcher,
+      log: () => {},
+    });
+    durableTelegram.onUpdate(async (update) => {
+      const result = await durableUpdateHandler(update);
+      durableTelegram.stop();
+      return result;
+    });
+    await durableTelegram.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fs.readFileSync(path.join(durableTelegramRoot, 'offset.txt'), 'utf8').trim(), '26');
+    assert.equal(durableTelegramInbox.getState(25).state, 'done');
+    assert.deepEqual(durableDispatches, [25]);
+    const durableJournal = fs.readFileSync(path.join(durableTelegramRoot, 'inbox.jsonl'), 'utf8');
+    assert(durableJournal.includes('persist before offset'));
+
+    const ignoredResult = await durableUpdateHandler({
+      update_id: 26,
+      message: {
+        message_id: 6,
+        text: 'unauthorized',
+        from: { id: 99 },
+        chat: { id: 12, type: 'private' },
+      },
+    });
+    assert.deepEqual(ignoredResult, { ignored: true });
+    assert.equal(durableTelegramInbox.getState(26), null);
+    assert.deepEqual(
+      classifyDurableError({ code: 'TETHER_DELIVERY_AMBIGUOUS' }),
+      { action: 'operator-pause', category: 'causal_ambiguity' },
+    );
 
     for (const [name, content, line] of [
       ['middle', '{"state":"done","updateId":1}\nnot-json\n{"state":"done","updateId":2}\n', 2],
@@ -852,6 +1044,65 @@ async function main() {
       chat_id: 'no-reply-room', text: 'hello', reply_parameters: { message_id: 99 },
     }, { noReplyGroupIds: ['no-reply-room'] });
     assert.equal(telegramSendBody.reply_parameters, undefined);
+    await assert.rejects(
+      createTelegramApi({
+        token: 'synthetic-token',
+        fetchImpl: async () => { throw new Error('connection vanished'); },
+      }).sendMessage({ chat_id: 1, text: 'ambiguous' }),
+      (error) => error.deliveryAmbiguous === true && error.manualRetryOnly === true,
+    );
+    await assert.rejects(
+      createTelegramApi({
+        token: 'synthetic-token',
+        fetchImpl: async () => { throw new Error('poll connection vanished'); },
+      }).call('getUpdates', { timeout: 0 }),
+      (error) => error.deliveryAmbiguous !== true,
+    );
+
+    const splitDeliveries = [];
+    const splitChannel = createTelegramChannel({
+      api: {
+        async call() { return { ok: true, result: [] }; },
+        async sendMessage(params) {
+          splitDeliveries.push(structuredClone(params));
+          return { ok: true, result: { message_id: splitDeliveries.length } };
+        },
+      },
+      ownerIds: ['11'],
+      offsetStore: createFileOffsetStore(path.join(root, 'split-offset.txt')),
+      log: () => {},
+    });
+    await splitChannel.send({
+      text: 'z'.repeat(4097),
+      sourceMessage: { metadata: { chatId: '12', telegramMessageId: 9 } },
+    });
+    assert.deepEqual(splitDeliveries.map((item) => item.text.length), [4096, 1]);
+    assert.equal(splitDeliveries[0].reply_parameters.message_id, 9);
+    assert.equal(splitDeliveries[1].reply_parameters, undefined);
+
+    let partialCalls = 0;
+    const partialChannel = createTelegramChannel({
+      api: {
+        async call() { return { ok: true, result: [] }; },
+        async sendMessage() {
+          partialCalls += 1;
+          if (partialCalls === 2) throw new Error('safe second-chunk rejection');
+          return { ok: true, result: { message_id: partialCalls } };
+        },
+      },
+      ownerIds: ['11'],
+      offsetStore: createFileOffsetStore(path.join(root, 'partial-offset.txt')),
+      log: () => {},
+    });
+    await assert.rejects(
+      partialChannel.send({
+        text: 'q'.repeat(4097),
+        sourceMessage: { metadata: { chatId: '12', telegramMessageId: 9 } },
+      }),
+      (error) => error.deliveryAmbiguous === true
+        && error.manualRetryOnly === true
+        && error.partialDeliveryCount === 1,
+    );
     assert.throws(
       () => createTelegramApi({ token: 'synthetic-token', apiBase: 'http://example.invalid' }),
       /https unless the host is loopback/,
@@ -863,6 +1114,7 @@ async function main() {
     }));
 
     let requestedBody = null;
+    let requestedUrl = null;
     const openAi = createOpenAICompatibleProvider({
       providers: [{
         id: 'mock',
@@ -874,9 +1126,23 @@ async function main() {
         semanticExtractorModel: 'mock-semantic-extractor',
         semanticVerifierModel: 'mock-semantic-verifier',
         semanticHighRiskModel: 'mock-semantic-high-risk',
+        embeddingsUrl: 'https://example.invalid/v1/embeddings',
+        embeddingModel: 'mock-embedding',
       }],
-      fetchImpl: async (_url, options) => {
+      fetchImpl: async (url, options) => {
+        requestedUrl = url;
         requestedBody = JSON.parse(options.body);
+        if (url.endsWith('/embeddings')) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                data: requestedBody.input.map((_text, index) => ({ index, embedding: [index + 1, 1] })),
+              };
+            },
+          };
+        }
         return { ok: true, status: 200, async json() { return { choices: [{ message: { content: 'ok' } }] }; } };
       },
     });
@@ -892,6 +1158,10 @@ async function main() {
     assert.equal(requestedBody.model, 'mock-semantic-verifier');
     await openAi.respond({ purpose: 'semantic-high-risk', messages: [{ role: 'user', content: '{}' }] });
     assert.equal(requestedBody.model, 'mock-semantic-high-risk');
+    const embedded = await openAi.embed({ texts: ['one', 'two'] });
+    assert.equal(requestedUrl, 'https://example.invalid/v1/embeddings');
+    assert.equal(requestedBody.model, 'mock-embedding');
+    assert.deepEqual(embedded.vectors, [[1, 1], [2, 1]]);
     await assert.rejects(
       createOpenAICompatibleProvider({
         providers: [{ id: 'remote-http', baseUrl: 'http://example.invalid/v1', model: 'x' }],

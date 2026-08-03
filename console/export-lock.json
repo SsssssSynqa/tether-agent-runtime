@@ -1,5 +1,5 @@
 {
-  "file_count": 38,
+  "file_count": 40,
   "files": [
     {
       "path": ".env.example",
@@ -13,8 +13,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "921e06a7e1670ba685134f3d4de18c0603da666b1448049ce0efcdd2ad452ea9",
-      "size": 5151
+      "sha256": "c85fd9f4b9243f2e73a8b6292ab0ee621c6870fdffa1630fe9b6967ffba93653",
+      "size": 5350
     },
     {
       "path": "backend/requirements.txt",
@@ -23,8 +23,8 @@
     },
     {
       "path": "backend/tests/test_tether_console.py",
-      "sha256": "1b9d8f4f6e351efaf0db5dfa41326831ded44de8018046567dc5d835d840e263",
-      "size": 14663
+      "sha256": "36574d41627c6ca83ecd6f4c2c06e93d82080221e55693c5d44260e46a1b89fb",
+      "size": 16780
     },
     {
       "path": "backend/tether_console/__init__.py",
@@ -48,13 +48,13 @@
     },
     {
       "path": "backend/tether_console/readers.py",
-      "sha256": "b51e8f4881523cd3a359dce22f20340e729aaf4ceaa504ba0c02c93d6667c0b8",
-      "size": 23491
+      "sha256": "ec1ac8383d238cdcb9e2fda017b46766f3d01564ab142ede6c0f61e61dc349fd",
+      "size": 26681
     },
     {
       "path": "backend/tether_console/service.py",
-      "sha256": "409a0c4111bb95ad30c33dc6817f49a671ef916ba86c6563c1d719adc207e83d",
-      "size": 4486
+      "sha256": "c4a2a81ec4fd82148d55a1a86b6952e7192857f9226f372b542ccc875a8eecba",
+      "size": 4601
     },
     {
       "path": "frontend/index.html",
@@ -83,8 +83,8 @@
     },
     {
       "path": "frontend/src/model.js",
-      "sha256": "84f4a1afb771eff929ec203bcf34f25bb7a1f82926dab6f61576e6f4c1fd3ffd",
-      "size": 1404
+      "sha256": "e2ffb5d9f646d512e14c891b77f69dd2bf6463b58f6dd4d51d138b8a703a7259",
+      "size": 1559
     },
     {
       "path": "frontend/src/style.css",
@@ -98,13 +98,13 @@
     },
     {
       "path": "frontend/src/view.js",
-      "sha256": "15cf581a5a6a854f8b67c06ba77c653cdd005885d19aef8f6af82ce7b126c4d4",
-      "size": 11185
+      "sha256": "5b02a90ebfb2eb547c84099c38618e013a7c99a1e913869325d107fe21afd030",
+      "size": 12032
     },
     {
       "path": "frontend/tests/model.test.js",
-      "sha256": "58a4506ec2bb6390d6ce19904cbe06807c6234359f6df2708d55fea24f83dcf1",
-      "size": 3634
+      "sha256": "dba5d37f5e20ba56dda1dd4cabcf970a6c471a057d363de5b8feec2fbb92acf3",
+      "size": 4085
     },
     {
       "path": "frontend/vite.config.js",
@@ -152,6 +152,16 @@
       "size": 1064
     },
     {
+      "path": "sample-data/semantic/embedding-state.json",
+      "sha256": "f173a221bb933a0a9df05a4bf4a83cb7495e3dc85476c94a96ac138ff20dc82f",
+      "size": 178
+    },
+    {
+      "path": "sample-data/semantic/embeddings.jsonl",
+      "sha256": "03962962e5125e4380ac618920e20bfc8724933deb6610d33572c050bb42996e",
+      "size": 716
+    },
+    {
       "path": "sample-data/semantic/entities.json",
       "sha256": "db4babd7cc3a885f4894aed13bd499ac6b2b0b4296dbf1510d42b80d7736b743",
       "size": 143
@@ -193,6 +203,6 @@
     }
   ],
   "license": "Apache-2.0",
-  "manifest_sha256": "8f5d8e8a1959c8ac5a015b569ac44b94c2b9d27514e955692c030bff09d5bb98",
+  "manifest_sha256": "b65709d7eb7491596f6248a3dca7434f4f81d24999a57d5f405035b8bbbdf777",
   "schema_version": 1
 }

@@ -337,11 +337,13 @@ class DurableInbox {
   }
 
   chatIdForEntry(entry) {
-    return String(entry?.update?.message?.chat?.id ?? `update:${entry?.updateId}`);
+    const message = entry?.update?.message || entry?.update?.edited_message;
+    return String(message?.chat?.id ?? `update:${entry?.updateId}`);
   }
 
   chatIdForUpdate(update) {
-    return String(update?.message?.chat?.id ?? `update:${update?.update_id}`);
+    const message = update?.message || update?.edited_message;
+    return String(message?.chat?.id ?? `update:${update?.update_id}`);
   }
 
   dueEntryRunsInOrder(now = Date.now()) {
@@ -378,7 +380,8 @@ class DurableInbox {
 
   hasEarlierBlockedEntry(update) {
     const updateId = Number(update?.update_id);
-    const chatId = String(update?.message?.chat?.id ?? `update:${updateId}`);
+    const message = update?.message || update?.edited_message;
+    const chatId = String(message?.chat?.id ?? `update:${updateId}`);
     // operator-paused 必须排除，与 dueEntryRunsInOrder 的屏障判定保持同一语义：
     // 它的 nextRetryAt 是 null 永不到期，若算作屏障，同 chat 之后的每条实时消息
     // 都会被这里判「前方有未终结 update」而降级去 retry 兜底路径——消息不丢，

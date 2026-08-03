@@ -8,6 +8,39 @@ const { sendWithMissingReplyFallback } = require('../../telegram-reply-fallback.
 const { sendWithGroupRateLimit } = require('../../lib/telegram/group-rate-limit.cjs');
 const { isLoopbackHostname } = require('../config-loader.cjs');
 
+const DEFAULT_POLL_RETRY_DELAY_MS = 1000;
+const DEFAULT_TELEGRAM_TIMEOUT_MS = 40_000;
+const LONG_POLL_GRACE_MS = 15_000;
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function markAmbiguousDelivery(error, method) {
+  const wrapped = error instanceof Error ? error : new Error(String(error || 'Telegram request failed'));
+  if (method !== 'getUpdates') {
+    wrapped.deliveryAmbiguous = true;
+    wrapped.manualRetryOnly = true;
+  }
+  return wrapped;
+}
+
+function telegramRequestTimeoutMs(method, params = {}) {
+  if (method !== 'getUpdates') return DEFAULT_TELEGRAM_TIMEOUT_MS;
+  const serverTimeoutMs = Math.max(0, Number(params.timeout) || 0) * 1000;
+  return Math.max(DEFAULT_TELEGRAM_TIMEOUT_MS, serverTimeoutMs + LONG_POLL_GRACE_MS);
+}
+
+function splitTelegramText(text, limit = 4096) {
+  const characters = Array.from(String(text || ''));
+  if (characters.length <= limit) return [characters.join('')];
+  const chunks = [];
+  for (let offset = 0; offset < characters.length; offset += limit) {
+    chunks.push(characters.slice(offset, offset + limit).join(''));
+  }
+  return chunks;
+}
+
 function createTelegramApi({ token, apiBase = 'https://api.telegram.org', fetchImpl = globalThis.fetch } = {}) {
   if (!token) throw new Error('Telegram token is required');
   const parsedBase = new URL(apiBase);
@@ -21,12 +54,31 @@ function createTelegramApi({ token, apiBase = 'https://api.telegram.org', fetchI
   }
   const normalizedBase = parsedBase.href.replace(/\/$/, '');
   const call = async (method, params = {}) => {
-    const response = await fetchImpl(`${normalizedBase}/bot${token}/${method}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-    const payload = await response.json();
+    let response;
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      telegramRequestTimeoutMs(method, params),
+    );
+    timer.unref?.();
+    try {
+      response = await fetchImpl(`${normalizedBase}/bot${token}/${method}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(params),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw markAmbiguousDelivery(error, method);
+    } finally {
+      clearTimeout(timer);
+    }
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw markAmbiguousDelivery(error, method);
+    }
     if (!response.ok || !payload.ok) throw new Error(payload.description || `Telegram HTTP ${response.status}`);
     return payload;
   };
@@ -105,6 +157,28 @@ function createFileOffsetStore(filePath) {
   };
 }
 
+function createDurableUpdateHandler({ channel, inbox, dispatcher, log = console.error } = {}) {
+  if (!channel?.normalizeUpdate) throw new Error('Durable Telegram ingress requires a channel');
+  if (!inbox?.receive || !inbox?.getState) throw new Error('Durable Telegram ingress requires an inbox');
+  if (typeof dispatcher?.processUpdate !== 'function') {
+    throw new Error('Durable Telegram ingress requires a dispatcher');
+  }
+  return async (update) => {
+    if (!channel.normalizeUpdate(update)) return { ignored: true };
+    const updateId = Number(update.update_id);
+    const prior = inbox.getState(updateId);
+    const accepted = inbox.receive(update);
+    if (!accepted) return { duplicate: true };
+    if (prior && prior.state !== 'received') {
+      return { durable: true, deferredToRetry: true };
+    }
+    dispatcher.processUpdate(update).catch((error) => {
+      log(`[tether] durable Telegram dispatch failed update=${updateId}: ${error.message}`);
+    });
+    return { durable: true };
+  };
+}
+
 function createTelegramChannel({
   id = 'telegram',
   api,
@@ -115,48 +189,74 @@ function createTelegramChannel({
   rateLimitStateDir = null,
   offsetStore,
   pollTimeoutSeconds = 30,
+  pollRetryDelayMs = DEFAULT_POLL_RETRY_DELAY_MS,
   log = console.log,
 } = {}) {
   if (!api?.call || !api?.sendMessage) throw new Error('Telegram channel requires an API client');
   if (!offsetStore?.read || !offsetStore?.write) throw new Error('Telegram channel requires an offset store');
   let handler = null;
+  let rawUpdateHandler = null;
   let stopped = false;
   let running = null;
 
   const channel = {
     id: String(id),
     onMessage(next) { handler = next; },
-    async send(message) {
-      const source = message?.sourceMessage?.metadata || {};
-      if (!source.chatId) throw new Error('Telegram delivery lacks source chatId');
-      const text = String(message.text || '');
-      if (Array.from(text).length > 4096) {
-        throw new Error('Telegram adapter refuses non-atomic output above 4096 characters');
+    onUpdate(next) {
+      if (next != null && typeof next !== 'function') {
+        throw new Error('Telegram raw update handler must be a function');
       }
-      const params = { chat_id: source.chatId, text };
-      if (source.telegramMessageId) {
-        params.reply_parameters = {
-          message_id: source.telegramMessageId,
-          allow_sending_without_reply: true,
-        };
-      }
-      return sendWithGroupRateLimit(
-        source.chatId,
-        () => api.sendMessage(params, { noReplyGroupIds }),
-        {
-          rateLimitedGroupIds,
-          ...(rateLimitStateDir ? { stateDir: rateLimitStateDir } : {}),
-          log,
-        },
-      );
+      rawUpdateHandler = next || null;
     },
-    async ingestUpdate(update) {
-      if (!handler) throw new Error('Telegram channel is not attached');
-      const normalized = normalizeTelegramUpdate(update, {
+    normalizeUpdate(update) {
+      return normalizeTelegramUpdate(update, {
         ownerIds,
         allowedGroupIds,
         privateOwnerOnly: true,
       });
+    },
+    async send(message) {
+      const source = message?.sourceMessage?.metadata || {};
+      if (!source.chatId) throw new Error('Telegram delivery lacks source chatId');
+      const text = String(message.text || '');
+      const chunks = splitTelegramText(text);
+      const results = [];
+      for (let index = 0; index < chunks.length; index += 1) {
+        const params = { chat_id: source.chatId, text: chunks[index] };
+        if (index === 0 && source.telegramMessageId) {
+          params.reply_parameters = {
+            message_id: source.telegramMessageId,
+            allow_sending_without_reply: true,
+          };
+        }
+        try {
+          results.push(await sendWithGroupRateLimit(
+            source.chatId,
+            () => api.sendMessage(params, { noReplyGroupIds }),
+            {
+              rateLimitedGroupIds,
+              ...(rateLimitStateDir ? { stateDir: rateLimitStateDir } : {}),
+              log,
+            },
+          ));
+        } catch (error) {
+          if (index > 0) {
+            const ambiguous = error instanceof Error
+              ? error
+              : new Error(String(error || 'Telegram partial delivery failed'));
+            ambiguous.deliveryAmbiguous = true;
+            ambiguous.manualRetryOnly = true;
+            ambiguous.partialDeliveryCount = index;
+            throw ambiguous;
+          }
+          throw error;
+        }
+      }
+      return results;
+    },
+    async ingestUpdate(update) {
+      if (!handler) throw new Error('Telegram channel is not attached');
+      const normalized = channel.normalizeUpdate(update);
       if (!normalized) return { ignored: true };
       return handler(normalized);
     },
@@ -167,15 +267,24 @@ function createTelegramChannel({
       running = (async () => {
         let offset = offsetStore.read();
         while (!stopped) {
-          const payload = await api.call('getUpdates', {
-            offset,
-            timeout: Math.max(0, Number(pollTimeoutSeconds) || 30),
-            allowed_updates: ['message', 'edited_message'],
-          });
-          for (const update of payload.result || []) {
-            await channel.ingestUpdate(update);
-            offset = Number(update.update_id) + 1;
-            offsetStore.write(offset);
+          try {
+            const payload = await api.call('getUpdates', {
+              offset,
+              timeout: Number.isFinite(Number(pollTimeoutSeconds))
+                ? Math.max(0, Number(pollTimeoutSeconds))
+                : 30,
+              allowed_updates: ['message', 'edited_message'],
+            });
+            for (const update of payload.result || []) {
+              if (rawUpdateHandler) await rawUpdateHandler(update);
+              else await channel.ingestUpdate(update);
+              offset = Number(update.update_id) + 1;
+              offsetStore.write(offset);
+            }
+          } catch (error) {
+            if (stopped) break;
+            log(`[tether] Telegram poll/ingress retry: ${error.message}`);
+            await sleep(Math.max(100, Number(pollRetryDelayMs) || DEFAULT_POLL_RETRY_DELAY_MS));
           }
         }
       })().finally(() => { running = null; });
@@ -190,5 +299,8 @@ module.exports = {
   createFileOffsetStore,
   createTelegramApi,
   createTelegramChannel,
+  createDurableUpdateHandler,
   normalizeTelegramUpdate,
+  splitTelegramText,
+  telegramRequestTimeoutMs,
 };

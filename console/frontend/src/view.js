@@ -23,7 +23,7 @@ const labels = {
   overview: 'Overview', cards: 'Cards', semantic: 'Semantics',
   context: 'Current context', integrity: 'Sources & integrity',
   day: 'Day cards', week: 'Week cards', fold: 'Folds',
-  claims: 'Claims', events: 'Events', projections: 'Projections', reviews: 'Reviews', queue: 'Queue',
+  claims: 'Claims', events: 'Events', projections: 'Projections', reviews: 'Reviews', queue: 'Queue', vectors: 'Vectors',
 }
 
 function number(value) {
@@ -44,6 +44,17 @@ function countCard(label, value, note) {
   return `<article class="metric"><span>${escapeHtml(label)}</span><strong>${number(value)}</strong><small>${escapeHtml(note)}</small></article>`
 }
 
+function vectorCoverageCard(embedding = {}) {
+  const enabled = embedding.enabled === true
+  const value = enabled
+    ? `${number(embedding.indexed_documents)} / ${number(embedding.total_documents)}`
+    : 'Off'
+  const note = enabled
+    ? `${number(embedding.missing_documents)} pending · ${number(embedding.stored_vectors)} stored`
+    : `${number(embedding.stored_vectors)} stored vectors`
+  return `<article class="metric"><span>Vector coverage</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(note)}</small></article>`
+}
+
 function overview(data) {
   const { status, context, integrity } = data
   const counts = status.counts || {}
@@ -62,6 +73,7 @@ function overview(data) {
       ${countCard('Events', counts.events, `${number(counts.accepted_events)} accepted`)}
       ${countCard('Projections', counts.projections, `${number(counts.accepted_projections)} active`)}
       ${countCard('Semantic queue', counts.queue_actionable, `${number(counts.queue_retry)} retry · ${number(counts.queue_human_review)} human review`)}
+      ${vectorCoverageCard(status.embedding)}
       ${countCard('Integrity issues', integrity.issue_count, integrity.healthy ? 'all references resolve' : 'open the integrity view')}
     </div>
     <article class="manifest-card">
@@ -101,12 +113,13 @@ function recordSummary(record, kind) {
   if (kind === 'events') return record.title || record.eventId
   if (kind === 'projections') return (record.sentences || []).map((item) => item.text).filter(Boolean).join(' ') || record.title
   if (kind === 'queue') return `${record.queueClass || 'live'} · ${number(record.attempts)} attempt(s)${record.nextRetryAt ? ` · next ${date(record.nextRetryAt)}` : ''}`
+  if (kind === 'vectors') return `${record.kind || 'memory'} · ${number(record.dimensions)} dimensions · ${record.providerId || 'provider not recorded'}${record.model ? ` · ${record.model}` : ''}`
   return `${record.status || 'review'} · ${record.packetId || record.reviewId || ''}`
 }
 
 function semantic(data, state) {
   const records = semanticItems(data.semantic, state.semanticKind)
-  return `<section><header class="page-head"><div><p class="eyebrow">VERIFIABLE MEMORY</p><h2>Semantic records</h2><p>Claims, events, projections, reviews, and durable extraction work remain distinct. A fluent sentence is not evidence by itself.</p></div><div class="segmented">${SEMANTIC_KINDS.map((kind) => `<button data-semantic-kind="${kind}" class="${state.semanticKind === kind ? 'active' : ''}">${labels[kind]} <span>${number(kind === 'queue' ? data.semantic.counts?.queue_total : data.semantic.counts?.[kind])}</span></button>`).join('')}</div></header>
+  return `<section><header class="page-head"><div><p class="eyebrow">VERIFIABLE MEMORY</p><h2>Semantic records</h2><p>Claims, events, projections, reviews, durable extraction work, and vector metadata remain distinct. Numeric embeddings never leave the local store through this API.</p></div><div class="segmented">${SEMANTIC_KINDS.map((kind) => `<button data-semantic-kind="${kind}" class="${state.semanticKind === kind ? 'active' : ''}">${labels[kind]} <span>${number(kind === 'queue' ? data.semantic.counts?.queue_total : data.semantic.counts?.[kind])}</span></button>`).join('')}</div></header>
   <div class="semantic-list">${records.length ? records.map((record) => `<details class="semantic-record"><summary><span>${escapeHtml(recordIdentity(record, state.semanticKind))}</span>${pill(record.verificationStatus || record.status || 'record')}</summary><p>${escapeHtml(recordSummary(record, state.semanticKind) || '')}</p><pre class="json-copy">${escapeHtml(JSON.stringify(record, null, 2))}</pre></details>`).join('') : '<div class="empty">No semantic records.</div>'}</div></section>`
 }
 
