@@ -5,7 +5,7 @@
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { loadTetherConfig } = require('../runtime/config-loader.cjs');
-const { AppendOnlyMemory } = require('../runtime/memory/append-only-memory.cjs');
+const { LayeredMemory } = require('../runtime/memory/layered-memory.cjs');
 const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
 const { SelfsameSession } = require('../runtime/selfsame-session.cjs');
 const { TetherRuntime } = require('../runtime/tether-runtime.cjs');
@@ -52,7 +52,32 @@ async function main() {
       process.exit(0);
     });
   }
-  const memory = new AppendOnlyMemory({ directory: path.join(config.storage.root, 'memory') });
+  const providers = config.providers
+    .filter((provider) => provider.adapter === 'openai-compatible')
+    .map((provider) => ({
+      id: provider.id,
+      label: provider.label,
+      baseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
+      model: provider.model,
+      foldModel: provider.foldModel,
+      memoryModel: provider.memoryModel,
+      maxTokens: provider.maxTokens,
+      foldMaxTokens: provider.foldMaxTokens,
+      memoryMaxTokens: provider.memoryMaxTokens,
+      headers: provider.headers,
+      timeoutMs: provider.timeoutMs,
+    }));
+  const provider = createOpenAICompatibleProvider({ providers });
+  const memory = new LayeredMemory({
+    directory: path.join(config.storage.root, 'memory'),
+    provider,
+    agent: config.agent,
+    owner: config.owner,
+    entities: config.entities,
+    addressPolicy: config.addressPolicy,
+    memory: config.memory,
+  });
   const session = new SelfsameSession({
     stateFile: path.join(config.storage.root, 'session.json'),
     agentId: config.agent.id,
@@ -65,18 +90,6 @@ async function main() {
   // Bootstrap once at the process boundary.  Channels never race to decide
   // whether they are allowed to create the primary session.
   await session.open({ allowCreate: config.runtime?.allowInitialSessionCreate === true });
-  const providers = config.providers
-    .filter((provider) => provider.adapter === 'openai-compatible')
-    .map((provider) => ({
-      id: provider.id,
-      label: provider.label,
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey,
-      model: provider.model,
-      headers: provider.headers,
-      timeoutMs: provider.timeoutMs,
-    }));
-  const provider = createOpenAICompatibleProvider({ providers });
   const terminal = createTerminalChannel();
   const runtime = new TetherRuntime({
     session,

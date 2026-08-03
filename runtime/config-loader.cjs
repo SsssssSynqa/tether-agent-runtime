@@ -60,6 +60,7 @@ function validateConfig(config) {
   if (!config.agent?.id) errors.push('agent.id is required');
   if (!config.agent?.displayName) errors.push('agent.displayName is required');
   if (!config.owner?.entityId) errors.push('owner.entityId is required');
+  if (!config.owner?.displayName) errors.push('owner.displayName is required');
   if (!config.storage?.root) errors.push('storage.root is required');
   if (Object.hasOwn(config.telegram || {}, 'token')) {
     errors.push('telegram.token is forbidden; use telegram.tokenEnv');
@@ -72,6 +73,11 @@ function validateConfig(config) {
     if (!provider.label) errors.push(`providers[${index}].label is required`);
     if (!provider.adapter) errors.push(`providers[${index}].adapter is required`);
     if (!provider.model) errors.push(`providers[${index}].model is required`);
+    for (const field of ['foldModel', 'memoryModel']) {
+      if (provider[field] != null && !String(provider[field]).trim()) {
+        errors.push(`providers[${index}].${field} must be a non-empty string when supplied`);
+      }
+    }
     if (Object.hasOwn(provider, 'apiKey')) {
       errors.push(`providers[${index}].apiKey is forbidden; use apiKeyEnv`);
     }
@@ -120,6 +126,35 @@ function validateConfig(config) {
         errors.push(`providers[${index}].baseUrl must use http or https`);
       }
     }
+  }
+  const memory = config.memory || {};
+  const numericMemoryFields = [
+    'historyTokenBudget',
+    'roundsBudget',
+    'hardTokenCap',
+    'activeSoftTokenWatermark',
+    'activeTargetTokenWatermark',
+    'roundHardLimit',
+    'minimumRawTailRounds',
+    'summaryHistoryLimit',
+    'foldSummaryMaxChars',
+    'contextTokenBudget',
+    'recentWeekCount',
+  ];
+  for (const field of numericMemoryFields) {
+    if (memory[field] != null && (!Number.isFinite(Number(memory[field])) || Number(memory[field]) <= 0)) {
+      errors.push(`memory.${field} must be a positive number`);
+    }
+  }
+  if (
+    memory.activeSoftTokenWatermark != null
+    && memory.activeTargetTokenWatermark != null
+    && Number(memory.activeTargetTokenWatermark) > Number(memory.activeSoftTokenWatermark)
+  ) {
+    errors.push('memory.activeTargetTokenWatermark must not exceed activeSoftTokenWatermark');
+  }
+  if (memory.cards?.policy != null && !['pending', 'relational', 'lossless'].includes(memory.cards.policy)) {
+    errors.push('memory.cards.policy must be pending, relational, or lossless');
   }
   if (errors.length) throw new Error(`Invalid Tether config:\n- ${errors.join('\n- ')}`);
   return config;

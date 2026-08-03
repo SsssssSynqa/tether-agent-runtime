@@ -169,7 +169,7 @@ async function main() {
     );
     const configEnvelope = {
       agent: { id: 'agent', displayName: 'Agent' },
-      owner: { entityId: 'owner' },
+      owner: { entityId: 'owner', displayName: 'Owner' },
       storage: { root: './data' },
     };
     const providerConfig = (overrides = {}) => ({
@@ -849,7 +849,14 @@ async function main() {
 
     let requestedBody = null;
     const openAi = createOpenAICompatibleProvider({
-      providers: [{ id: 'mock', label: 'Mock Provider', baseUrl: 'https://example.invalid/v1/chat/completions', model: 'mock-model' }],
+      providers: [{
+        id: 'mock',
+        label: 'Mock Provider',
+        baseUrl: 'https://example.invalid/v1/chat/completions',
+        model: 'mock-model',
+        foldModel: 'mock-fold-model',
+        memoryModel: 'mock-memory-model',
+      }],
       fetchImpl: async (_url, options) => {
         requestedBody = JSON.parse(options.body);
         return { ok: true, status: 200, async json() { return { choices: [{ message: { content: 'ok' } }] }; } };
@@ -857,6 +864,10 @@ async function main() {
     });
     assert.equal((await openAi.respond({ messages: [{ role: 'user', content: 'offline' }] })).text, 'ok');
     assert.equal(requestedBody.model, 'mock-model');
+    await openAi.respond({ purpose: 'fold', messages: [{ role: 'user', content: 'fold' }] });
+    assert.equal(requestedBody.model, 'mock-fold-model');
+    await openAi.respond({ purpose: 'memory-card', messages: [{ role: 'user', content: 'card' }] });
+    assert.equal(requestedBody.model, 'mock-memory-model');
     await assert.rejects(
       createOpenAICompatibleProvider({
         providers: [{ id: 'remote-http', baseUrl: 'http://example.invalid/v1', model: 'x' }],
@@ -921,7 +932,8 @@ async function main() {
   }
 }
 
-main().catch(() => {
+main().catch((error) => {
+  process.stderr.write(`${error.stack || error.message}\n`);
   process.stderr.write('Tether offline suite: FAIL\n');
   process.exitCode = 1;
 });

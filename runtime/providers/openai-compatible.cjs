@@ -14,11 +14,21 @@ function createOpenAICompatibleProvider({ providers, fetchImpl = globalThis.fetc
   if (!Array.isArray(providers) || providers.length === 0) throw new Error('Provider chain is empty');
   if (typeof fetchImpl !== 'function') throw new Error('A fetch implementation is required');
   return {
-    async respond({ messages }) {
+    async respond({ messages, purpose = 'chat' }) {
       const failures = [];
       for (const provider of providers) {
         try {
           if (!provider.baseUrl || !provider.model) throw new Error('baseUrl and model are required');
+          const model = purpose === 'fold'
+            ? (provider.foldModel || provider.model)
+            : purpose === 'memory-card'
+              ? (provider.memoryModel || provider.foldModel || provider.model)
+              : provider.model;
+          const maxTokens = purpose === 'fold'
+            ? provider.foldMaxTokens
+            : purpose === 'memory-card'
+              ? provider.memoryMaxTokens
+              : provider.maxTokens;
           const parsedUrl = new URL(provider.baseUrl);
           const protocol = parsedUrl.protocol;
           if (!['http:', 'https:'].includes(protocol)) throw new Error('baseUrl must use http or https');
@@ -40,7 +50,11 @@ function createOpenAICompatibleProvider({ providers, fetchImpl = globalThis.fetc
                 ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
                 ...(provider.headers || {}),
               },
-              body: JSON.stringify({ model: provider.model, messages }),
+              body: JSON.stringify({
+                model,
+                messages,
+                ...(Number(maxTokens) > 0 ? { max_tokens: Number(maxTokens) } : {}),
+              }),
               signal: controller.signal,
             });
           } finally { clearTimeout(timer); }
@@ -48,7 +62,14 @@ function createOpenAICompatibleProvider({ providers, fetchImpl = globalThis.fetc
           if (!response.ok) throw new Error(payload?.error?.message || `HTTP ${response.status}`);
           const text = completionText(payload);
           if (!text) throw new Error('Provider returned an empty completion');
-          return { text, providerId: provider.id, providerLabel: provider.label || provider.id };
+          return {
+            text,
+            providerId: provider.id,
+            providerLabel: provider.label || provider.id,
+            model,
+            purpose,
+            finishReason: payload?.choices?.[0]?.finish_reason || null,
+          };
         } catch (error) {
           failures.push({ providerId: provider.id, message: error.message });
         }

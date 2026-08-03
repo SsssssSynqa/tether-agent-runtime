@@ -27,6 +27,8 @@ class TetherRuntime {
     this.summaryLimit = summaryLimit;
     this.cardLimit = cardLimit;
     this.log = log;
+    this.layeredMemory = typeof memory.ensureTurn === 'function'
+      && typeof memory.buildMessages === 'function';
     this.channels = new Map();
     this.queue = Promise.resolve();
   }
@@ -47,7 +49,7 @@ class TetherRuntime {
     return task;
   }
 
-  _assistantRecord(sessionId, channelId, causalRecord) {
+  _legacyAssistantRecord(sessionId, channelId, causalRecord) {
     const output = causalRecord.output;
     return this.memory.appendMessage({
       messageId: output.outputId,
@@ -62,11 +64,86 @@ class TetherRuntime {
     }).record;
   }
 
+  async _recordCommittedTurn(state, channel, sourceMessage, causalRecord, legacyUser = null) {
+    const output = causalRecord.output;
+    if (!this.layeredMemory) {
+      return {
+        user: legacyUser,
+        assistant: this._legacyAssistantRecord(state.sessionId, channel.id, causalRecord),
+      };
+    }
+    const sourceMetadata = sourceMessage.metadata || {};
+    await this.memory.ensureTurn(sourceMessage.text, output.text, {
+      causalIds: [causalRecord.causalId],
+      source: sourceMetadata.source || channel.id,
+      trustZone: sourceMetadata.trustZone || null,
+      chatId: sourceMetadata.chatId || sourceMetadata.telegramChatId || channel.id,
+      senderId: sourceMetadata.senderId || sourceMetadata.telegramUserId || null,
+      sourceMessageId: sourceMessage.messageId,
+      completion: { providerId: output.providerId || null },
+    });
+    return {
+      user: this.memory.messageView({
+        messageId: sourceMessage.messageId,
+        sessionId: state.sessionId,
+        channelId: channel.id,
+        role: 'user',
+        text: sourceMessage.text,
+        metadata: sourceMetadata,
+      }),
+      assistant: this.memory.messageView({
+        messageId: output.outputId,
+        sessionId: state.sessionId,
+        channelId: channel.id,
+        role: 'assistant',
+        text: output.text,
+        metadata: { causalId: causalRecord.causalId, providerId: output.providerId },
+      }),
+    };
+  }
+
   _checkpoint(sessionId) {
     if (typeof this.session.checkpoint !== 'function') return;
     const result = this.memory.sessionProof(sessionId);
     if (!result.passed) throw new Error(`Memory checkpoint failed: ${result.errors.join(', ')}`);
     this.session.checkpoint(result.proof);
+  }
+
+  _providerMessages(user) {
+    if (this.layeredMemory) {
+      return this.memory.buildMessages({
+        personaPrompt: this.personaPrompt,
+        userText: user.text,
+        request: {
+          trustZone: user.metadata?.trustZone || null,
+          chatId: user.metadata?.chatId || user.channelId,
+          causalIds: user.metadata?.causalId ? [user.metadata.causalId] : [],
+        },
+      }).messages;
+    }
+    const compiled = this.memory.compileContext({
+      rawTailMessages: this.rawTailMessages,
+      summaryLimit: this.summaryLimit,
+      cardLimit: this.cardLimit,
+    });
+    return [
+      ...(this.personaPrompt ? [{ role: 'system', content: this.personaPrompt }] : []),
+      ...compiled.summaries.map((entry) => ({ role: 'system', content: entry.text })),
+      ...compiled.cards.map((entry) => ({
+        role: 'system',
+        content: `[Tether memory card: ${entry.cardType}:${entry.period.key}]\n${entry.content}`,
+      })),
+      ...compiled.rawTail.map((entry) => ({ role: entry.role, content: entry.text })),
+    ];
+  }
+
+  async _maintainMemory() {
+    if (!this.layeredMemory || typeof this.memory.maintainOne !== 'function') return;
+    try {
+      await this.memory.maintainOne();
+    } catch (error) {
+      this.log(`[tether] memory maintenance failed without affecting the committed turn: ${error.message}`);
+    }
   }
 
   async _deliver(channel, sourceMessage, causalRecord, { replayed }) {
@@ -114,11 +191,17 @@ class TetherRuntime {
       );
     }
     if (causalRecord.state === 'delivered') {
-      const assistant = this._assistantRecord(state.sessionId, channel.id, causalRecord);
+      const { user, assistant } = await this._recordCommittedTurn(
+        state,
+        channel,
+        message,
+        causalRecord,
+      );
       this._checkpoint(state.sessionId);
       return {
         sessionId: state.sessionId,
         causalId: causalRecord.causalId,
+        user,
         assistant,
         outputId: causalRecord.output.outputId,
         replayed: true,
@@ -126,12 +209,18 @@ class TetherRuntime {
       };
     }
     if (['committed', 'delivery-failed'].includes(causalRecord.state)) {
-      const assistant = this._assistantRecord(state.sessionId, channel.id, causalRecord);
+      const { user, assistant } = await this._recordCommittedTurn(
+        state,
+        channel,
+        message,
+        causalRecord,
+      );
       this._checkpoint(state.sessionId);
       await this._deliver(channel, message, causalRecord, { replayed: true });
       return {
         sessionId: state.sessionId,
         causalId: causalRecord.causalId,
+        user,
         assistant,
         outputId: causalRecord.output.outputId,
         replayed: true,
@@ -146,30 +235,29 @@ class TetherRuntime {
       );
     }
 
-    const user = this.memory.appendMessage({
-      messageId: message.messageId,
-      sessionId: state.sessionId,
-      channelId: channel.id,
-      role: 'user',
-      text: message.text,
-      metadata: message.metadata || {},
-    }).record;
-    this._checkpoint(state.sessionId);
+    const user = this.layeredMemory
+      ? this.memory.messageView({
+          messageId: message.messageId,
+          sessionId: state.sessionId,
+          channelId: channel.id,
+          role: 'user',
+          text: message.text,
+          metadata: message.metadata || {},
+        })
+      : this.memory.appendMessage({
+          messageId: message.messageId,
+          sessionId: state.sessionId,
+          channelId: channel.id,
+          role: 'user',
+          text: message.text,
+          metadata: message.metadata || {},
+        }).record;
+    if (!this.layeredMemory) this._checkpoint(state.sessionId);
     causalRecord = this.causal.markInferenceStarted(causalRecord.causalId);
-    const compiled = this.memory.compileContext({
-      rawTailMessages: this.rawTailMessages,
-      summaryLimit: this.summaryLimit,
-      cardLimit: this.cardLimit,
+    const messages = this._providerMessages({
+      ...user,
+      metadata: { ...(user.metadata || {}), causalId: causalRecord.causalId },
     });
-    const messages = [
-      ...(this.personaPrompt ? [{ role: 'system', content: this.personaPrompt }] : []),
-      ...compiled.summaries.map((entry) => ({ role: 'system', content: entry.text })),
-      ...compiled.cards.map((entry) => ({
-        role: 'system',
-        content: `[Tether memory card: ${entry.cardType}:${entry.period.key}]\n${entry.content}`,
-      })),
-      ...compiled.rawTail.map((entry) => ({ role: entry.role, content: entry.text })),
-    ];
     const result = await this.provider.respond({
       sessionId: state.sessionId,
       channelId: channel.id,
@@ -180,9 +268,17 @@ class TetherRuntime {
       text: result.text,
       providerId: result.providerId || null,
     });
-    const assistant = this._assistantRecord(state.sessionId, channel.id, causalRecord);
+    const recorded = await this._recordCommittedTurn(
+      state,
+      channel,
+      message,
+      causalRecord,
+      user,
+    );
+    const assistant = recorded.assistant;
     this._checkpoint(state.sessionId);
     await this._deliver(channel, message, causalRecord, { replayed: false });
+    await this._maintainMemory();
     return {
       sessionId: state.sessionId,
       causalId: causalRecord.causalId,

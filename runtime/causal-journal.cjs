@@ -82,7 +82,7 @@ class CausalJournal {
       throw new Error('Causal input requires sessionId, channelId, and messageId');
     }
     const causalId = `causal:${sha256(`v1\0${sessionId}\0${channelId}\0${messageId}`)}`;
-    const input = {
+    const inputEnvelope = {
       sessionId: String(sessionId),
       channelId: String(channelId),
       messageId: String(messageId),
@@ -90,10 +90,29 @@ class CausalJournal {
       textSha256: sha256(text ?? ''),
       metadataSha256: sha256(canonicalJson(metadata || {})),
     };
-    const inputFingerprint = sha256(canonicalJson(input));
+    const input = {
+      ...inputEnvelope,
+      // Keep the durable ingress payload beside its hashes. If a process dies
+      // after inference starts, the state machine still refuses ambiguous
+      // reinference, but the original message itself is never lost.
+      text: String(text ?? ''),
+      metadata: structuredClone(metadata || {}),
+    };
+    const inputFingerprint = sha256(canonicalJson(inputEnvelope));
     const existing = this.latest.get(causalId);
     if (existing) {
-      if (existing.inputFingerprint !== inputFingerprint || canonicalJson(existing.input) !== canonicalJson(input)) {
+      const existingEnvelope = {
+        sessionId: String(existing.input?.sessionId || ''),
+        channelId: String(existing.input?.channelId || ''),
+        messageId: String(existing.input?.messageId || ''),
+        role: String(existing.input?.role || ''),
+        textSha256: String(existing.input?.textSha256 || ''),
+        metadataSha256: String(existing.input?.metadataSha256 || ''),
+      };
+      if (
+        existing.inputFingerprint !== inputFingerprint
+        || canonicalJson(existingEnvelope) !== canonicalJson(inputEnvelope)
+      ) {
         throw new CausalStateError(
           'Duplicate causal message does not match the committed input envelope',
           'TETHER_CAUSAL_MISMATCH',

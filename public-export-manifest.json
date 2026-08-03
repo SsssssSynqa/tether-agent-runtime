@@ -20,6 +20,7 @@
     { "source": "runtime/channels/telegram.cjs", "target": "runtime/channels/telegram.cjs" },
     { "source": "runtime/channels/terminal.cjs", "target": "runtime/channels/terminal.cjs" },
     { "source": "runtime/memory/append-only-memory.cjs", "target": "runtime/memory/append-only-memory.cjs" },
+    { "source": "runtime/memory/layered-memory.cjs", "target": "runtime/memory/layered-memory.cjs" },
     { "source": "runtime/providers/openai-compatible.cjs", "target": "runtime/providers/openai-compatible.cjs" },
     { "source": "durable-inbox.js", "target": "runtime/durable/durable-inbox.js" },
     { "source": "durable-dispatcher.js", "target": "runtime/durable/durable-dispatcher.js" },
@@ -34,6 +35,7 @@
     { "source": "compile-manifest-journal.js", "target": "runtime/memory/compile-manifest-journal.js" },
     { "source": "candidate-output.js", "target": "runtime/memory/candidate-output.js" },
     { "source": "memory-policy.js", "target": "runtime/memory/memory-policy.js" },
+    { "source": "conversation-history.js", "target": "runtime/memory/conversation-history.js" },
     { "source": "memory-time.js", "target": "runtime/memory/memory-time.js" },
     { "source": "memory-sources.js", "target": "runtime/memory/memory-sources.js" },
     { "source": "memory-card-address.js", "target": "runtime/memory/memory-card-address.js" },
@@ -49,6 +51,7 @@
     { "source": "scripts/export-public-snapshot.cjs", "target": "scripts/export-public-snapshot.cjs", "mode": "755" },
     { "source": "scripts/verify-export-lock.cjs", "target": "scripts/verify-export-lock.cjs", "mode": "755" },
     { "source": "test/offline.cjs", "target": "test/offline.cjs" },
+    { "source": "smoke/probe-public-layered-runtime.cjs", "target": "test/layered-runtime.cjs" },
     { "source": "test/fixtures/semantic-memory.json", "target": "test/fixtures/semantic-memory.json" }
   ]
 }

@@ -14,13 +14,13 @@
     },
     {
       "path": "bin/tether.cjs",
-      "sha256": "c313ee089a8e860cf323bd773517877c484d2cca9432471b725639d64f1ff9ce",
-      "size": 4662
+      "sha256": "2e90b4217f3df1ea5ba5c5a9ea67ad251072270e1da71f53b43e3815565344e0",
+      "size": 5031
     },
     {
       "path": "config.example.json",
-      "sha256": "70685becf1c36a88e6470f5accb4ace2999eb037489960a353443550b1e28703",
-      "size": 1193
+      "sha256": "164b4f47baf1858e289f2919e93d4e97f6ac9e52763a4e1785f1691e312131a4",
+      "size": 1724
     },
     {
       "path": "lib/telegram/group-batcher.cjs",
@@ -39,8 +39,8 @@
     },
     {
       "path": "package.json",
-      "sha256": "40d2d2b29d36d3c8aa6918714c04205db38214c229b9a1abf847d2b5d7a5e810",
-      "size": 465
+      "sha256": "cc14b2859898397fed3a41eb4b453c94143096382e56f4d6aa48780675bea734",
+      "size": 500
     },
     {
       "path": "persona-policy.example.md",
@@ -49,8 +49,8 @@
     },
     {
       "path": "public-export-manifest.json",
-      "sha256": "6bfeeb0c38909350cc9409a86f2ab1858dd9c1e8e6e38ec0bd6f733d9b55fde0",
-      "size": 4453
+      "sha256": "390cece92c1cce1e9f21b6444a9ee8eba453e5c2bc0e7e9b460b3439bd341aeb",
+      "size": 4750
     },
     {
       "path": "runtime/bridge/group-ingress-sequencer.js",
@@ -69,8 +69,8 @@
     },
     {
       "path": "runtime/causal-journal.cjs",
-      "sha256": "b0d23ffed7ea2761a87f03786424de4b9def0d4160b10230d137a57521eb7b82",
-      "size": 5402
+      "sha256": "1207df946501ab971ace217f3ac97f1c9e2b651e553c0db0f00246924e52f661",
+      "size": 6211
     },
     {
       "path": "runtime/channels/memory-channel.cjs",
@@ -89,8 +89,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "de8bd5a6842ec19dd543dde890c6056b612f59a81d61d2d9a67bf7f243aa1ddd",
-      "size": 7914
+      "sha256": "1476dd75ce3277f49c39703bccc5c02455123f501dc94d2a0c81eff83d0f0f6d",
+      "size": 9308
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",
@@ -138,6 +138,16 @@
       "size": 16107
     },
     {
+      "path": "runtime/memory/conversation-history.js",
+      "sha256": "4c256cc819a23705d07a180e4f50d2a2ac1f43be243ae60f19c47904ae83f0ca",
+      "size": 64145
+    },
+    {
+      "path": "runtime/memory/layered-memory.cjs",
+      "sha256": "dd6bcfe13650f383d4b63a30214bf187ea6997b683a897c0e108639d5e20c654",
+      "size": 7719
+    },
+    {
       "path": "runtime/memory/memory-card-address.js",
       "sha256": "7155a617037321718c312d4083576c60cd6be084c93dc582db3fee79f49c2b5c",
       "size": 7593
@@ -154,8 +164,8 @@
     },
     {
       "path": "runtime/memory/memory-card-store.js",
-      "sha256": "cbde0bc993194046fb3c6d7ce1d938792c783f51b0a4989e0bb7420986f45640",
-      "size": 11780
+      "sha256": "7ee8070e7f43b4ba8b7d0cb744232664648ef2b50f989f84e5aa84bc127e1650",
+      "size": 11858
     },
     {
       "path": "runtime/memory/memory-context-compiler.js",
@@ -179,8 +189,8 @@
     },
     {
       "path": "runtime/providers/openai-compatible.cjs",
-      "sha256": "4e96a91d0c05984caa68b440fc4b332342b3334d45808a388a8dfc2853cebbee",
-      "size": 2911
+      "sha256": "f1bf9ecb7e6e53fad7b54811953fd8e31df470290519c51f6f8105fa99245e82",
+      "size": 3652
     },
     {
       "path": "runtime/selfsame-session.cjs",
@@ -199,8 +209,8 @@
     },
     {
       "path": "runtime/tether-runtime.cjs",
-      "sha256": "a7e12f5ec39817edf168e0901dd4c5a1e11ba515fdb45313b81564d3636c7572",
-      "size": 6924
+      "sha256": "84d2c7097450d8b04cbb45b6df83112e2e800bd56f3a57efd0c15b3d9dfe83ae",
+      "size": 9949
     },
     {
       "path": "runtime/transport/chunk-emitter.js",
@@ -233,9 +243,14 @@
       "size": 1338
     },
     {
+      "path": "test/layered-runtime.cjs",
+      "sha256": "1804fcb627b825feeb93d261229d773acfc946526610811bf063e0e5349f29bf",
+      "size": 5307
+    },
+    {
       "path": "test/offline.cjs",
-      "sha256": "6956835fb2d5893f0e95b6733cecf9d91329d617b90ef3c645a9b8386684532a",
-      "size": 39456
+      "sha256": "37171d26c9adf714b4e80aeb5daff6d67435dabe9fd7a694901ad4fbd1b752ae",
+      "size": 39976
     }
   ]
 }

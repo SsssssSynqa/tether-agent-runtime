@@ -261,6 +261,7 @@ class MemoryCardStore {
       sourceIds: ids,
       sourceDigest: digest,
       content: text,
+      contentSha256: createHash('sha256').update(text, 'utf8').digest('hex'),
       ...(userAddressPolicy && typeof userAddressPolicy === 'object'
         ? { userAddressPolicy: structuredClone(userAddressPolicy) }
         : {}),
