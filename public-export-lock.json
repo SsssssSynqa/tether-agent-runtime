@@ -14,8 +14,8 @@
     },
     {
       "path": "bin/tether-memory.cjs",
-      "sha256": "4b36abbb7f336ba580a9d829bb6d1354957b2a2c95f1d6e83c9d29627c2d9c44",
-      "size": 4261
+      "sha256": "03f6310d1bf707543796b1902b6a7d32f81e09914c88cc61d7d9bc2455e393e8",
+      "size": 4324
     },
     {
       "path": "bin/tether-ops.cjs",
@@ -339,8 +339,8 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "fccf4d8dfd253abe164b798b197b2e255af852435a0b28c67b23faf7eb63607e",
-      "size": 117415
+      "sha256": "a6598ed871f25126f5c46e82e1bd30b00f765ec1e39cf590a09b4c652f9b235a",
+      "size": 117822
     }
   ]
 }

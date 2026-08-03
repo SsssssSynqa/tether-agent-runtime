@@ -71,7 +71,9 @@ async function runMemoryCommand({ command, configPath = './config.json' } = {}) 
     error.code = 'TETHER_MEMORY_USAGE';
     throw error;
   }
-  const config = loadTetherConfig(configPath);
+  const config = loadTetherConfig(configPath, {
+    resolveCredentials: command === 'backfill-vectors',
+  });
   const locks = acquireMemoryMaintenanceLocks(config.storage.root);
   let memory = null;
   try {

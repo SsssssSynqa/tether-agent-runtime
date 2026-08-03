@@ -2539,7 +2539,7 @@ async function main() {
         label: 'Offline',
         adapter: 'openai-compatible',
         baseUrl: 'http://127.0.0.1:11434/v1/chat/completions',
-        authentication: 'none',
+        apiKeyEnv: 'TETHER_TEST_PROVIDER_KEY_DO_NOT_SET',
         model: 'offline-model',
       }],
     }));
@@ -2572,6 +2572,13 @@ async function main() {
       false,
     );
     heldRuntimeLock.release();
+    const memoryStatusWithoutCredentials = await runMemoryCommand({
+      command: 'status',
+      configPath: opsConfigPath,
+    });
+    assert.equal(memoryStatusWithoutCredentials.semantic.mode, 'cards');
+    assert.equal(memoryStatusWithoutCredentials.transcript.schemaVersion, 1);
+    assert.match(memoryStatusWithoutCredentials.transcript.transcriptSha256, /^[a-f0-9]{64}$/);
     assert.equal(runOpsCommand(['resume', '501', opsConfigPath]).state, 'received');
     const opsInbox = new DurableInbox({
       filePath: path.join(backupStorageRoot, 'telegram-inbox.jsonl'),
