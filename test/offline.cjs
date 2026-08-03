@@ -835,7 +835,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.stack || error);
+main().catch(() => {
+  process.stderr.write('Tether offline suite: FAIL\n');
   process.exitCode = 1;
 });

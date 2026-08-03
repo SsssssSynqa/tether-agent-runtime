@@ -14,8 +14,8 @@
     },
     {
       "path": "bin/tether.cjs",
-      "sha256": "9107f0334920a94c657b44d25b0d3377d81b398d1ae8a4847708256207d1427a",
-      "size": 3932
+      "sha256": "c313ee089a8e860cf323bd773517877c484d2cca9432471b725639d64f1ff9ce",
+      "size": 4662
     },
     {
       "path": "config.example.json",
@@ -189,8 +189,8 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "a2fc37706065d9bb4ff6adb81a2319b0f6580703e25aefc23eb33c67f924e594",
-      "size": 36074
+      "sha256": "a40e6753151e5bdb3aebe44efa174eafd451b24a6f1333167c7dce9569b1255a",
+      "size": 36086
     }
   ]
 }

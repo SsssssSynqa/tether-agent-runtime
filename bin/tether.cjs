@@ -19,6 +19,23 @@ const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-
 
 let instanceLock = null;
 
+function diagnosticCode(error) {
+  switch (error?.code) {
+    case 'TETHER_SESSION_CONTINUITY': return 'TETHER_SESSION_CONTINUITY';
+    case 'TETHER_INSTANCE_LOCKED': return 'TETHER_INSTANCE_LOCKED';
+    case 'TETHER_INSTANCE_LOCK_CORRUPT': return 'TETHER_INSTANCE_LOCK_CORRUPT';
+    case 'TETHER_CAUSAL_CORRUPT': return 'TETHER_CAUSAL_CORRUPT';
+    case 'TETHER_INFERENCE_AMBIGUOUS': return 'TETHER_INFERENCE_AMBIGUOUS';
+    case 'TETHER_DELIVERY_AMBIGUOUS': return 'TETHER_DELIVERY_AMBIGUOUS';
+    default: return 'TETHER_UNEXPECTED_FAILURE';
+  }
+}
+
+function reportFailure(scope, error) {
+  const label = scope === 'telegram' ? 'telegram channel' : 'startup';
+  console.error(`[tether] ${label} failed (${diagnosticCode(error)})`);
+}
+
 function releaseInstanceLock() {
   try { instanceLock?.release(); } catch (_) { /* process shutdown is best effort */ }
   instanceLock = null;
@@ -84,7 +101,7 @@ async function main() {
     });
     runtime.attach(telegram);
     telegram.start().catch((error) => {
-      console.error(error.stack || error);
+      reportFailure('telegram', error);
       process.exitCode = 1;
     });
   }
@@ -93,6 +110,6 @@ async function main() {
 
 main().catch((error) => {
   releaseInstanceLock();
-  console.error(error.stack || error);
+  reportFailure('startup', error);
   process.exitCode = 1;
 });
