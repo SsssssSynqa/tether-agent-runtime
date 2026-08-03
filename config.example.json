@@ -31,6 +31,22 @@
     "maintenanceErrorBaseDelayMs": 30000,
     "maintenanceErrorMaxDelayMs": 3600000
   },
+  "tools": {
+    "enabled": true,
+    "maxIterations": 5,
+    "maxReadBytes": 524288,
+    "maxWriteBytes": 1048576,
+    "maxDirectoryEntries": 200,
+    "workspaceRoots": [
+      { "id": "workspace", "path": "./workspace" }
+    ],
+    "policies": {
+      "terminal": { "read": "allow", "write": "allow" },
+      "telegramPrivate": { "read": "allow", "write": "approval" },
+      "telegramGroup": { "read": "deny", "write": "deny" },
+      "default": { "read": "deny", "write": "deny" }
+    }
+  },
   "memory": {
     "activeSoftTokenWatermark": 36000,
     "activeTargetTokenWatermark": 24000,

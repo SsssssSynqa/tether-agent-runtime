@@ -18,14 +18,19 @@
       "size": 3611
     },
     {
+      "path": "bin/tether-tools.cjs",
+      "sha256": "ebd0051e957f0080c0a638c7d7e8a01e74ceecaea72140a0cb70dee0873b45f4",
+      "size": 1862
+    },
+    {
       "path": "bin/tether.cjs",
-      "sha256": "bc5bad04bdb83f5999bb9eae8187a6c3c296d748a43bbd701c7026d031f7f9f3",
-      "size": 10000
+      "sha256": "ee40844de110ddc6aba607dac568729e97e98aa9b6a4c449071d3ac7586fc6ab",
+      "size": 10456
     },
     {
       "path": "config.example.json",
-      "sha256": "7d64fb4d1c22fadc8a89f1c70cb11b107e49345cdd3429af96b07c012f1fae63",
-      "size": 3444
+      "sha256": "c288e54963e1cd7a3cc4a46d189f0628107249be443b513a4173b6fd2c1e723a",
+      "size": 3940
     },
     {
       "path": "lib/telegram/group-batcher.cjs",
@@ -44,8 +49,8 @@
     },
     {
       "path": "package.json",
-      "sha256": "8e5d4440fccbefe53fbba6ac717c0d7048c473e43d42bcba381f2971deaec20d",
-      "size": 801
+      "sha256": "ab56a51f4358c7d58f10330fd6b7b8374658602bd1040ec633a00271f17cc54c",
+      "size": 925
     },
     {
       "path": "persona-policy.example.md",
@@ -54,8 +59,8 @@
     },
     {
       "path": "public-export-manifest.json",
-      "sha256": "2d64e943a4c114df826b94152ec63d6d2a7943569e038ee2dec467afcc9bc039",
-      "size": 5717
+      "sha256": "6ac9106eab336faed8d812cc7279f4f78516cb84d785c180c785e4308cc58904",
+      "size": 6006
     },
     {
       "path": "runtime/bridge/group-ingress-sequencer.js",
@@ -99,8 +104,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "15be7eb79757d933a8662de975c03b1ba0cbfc34f30b698badbc89ab1780e787",
-      "size": 18075
+      "sha256": "2be096640e9c6cedcfdfa07ee40c6efb8fc627f956ca6938bbfc30ade71da60f",
+      "size": 20905
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",
@@ -244,8 +249,8 @@
     },
     {
       "path": "runtime/providers/openai-compatible.cjs",
-      "sha256": "ec9b265c6f3720c08bd53047dc02b0c5ae6bf839f8543e516a27ab7e3d9df5c2",
-      "size": 9202
+      "sha256": "3710c0d49de1d77b0b87a6c199e2effa39b9bf11295a1d34d870c0df0536eb4b",
+      "size": 21954
     },
     {
       "path": "runtime/selfsame-session.cjs",
@@ -254,8 +259,18 @@
     },
     {
       "path": "runtime/tether-runtime.cjs",
-      "sha256": "83654f97e0b08530783f1c90cb99d54c535fa386152abbb709709af87a0e2d21",
-      "size": 15805
+      "sha256": "378611ca0869ea11809b011818d97c8dbe45de384628379a9f385fd0c9b99206",
+      "size": 16360
+    },
+    {
+      "path": "runtime/tools/tool-journal.cjs",
+      "sha256": "777ab95fb1404b83e27482ac4fbb0e70927b19d2c0c8cf063d2294f3f86b66ab",
+      "size": 12735
+    },
+    {
+      "path": "runtime/tools/workspace-tools.cjs",
+      "sha256": "87cdebd9841a7d74d082a50c83bd825868bc52b122f54384c60af90f240c5eb6",
+      "size": 20236
     },
     {
       "path": "runtime/transport/chunk-emitter.js",
@@ -294,8 +309,8 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "c00fcc3eff9653801d7153fbc7bbd3e4f0828ff521f8b8abef7c353e81073a7d",
-      "size": 73831
+      "sha256": "0db1d039937c47112a2508bdc0a74bab62a51406c4ca0f3adeb80d04ad57fcf4",
+      "size": 96355
     }
   ]
 }

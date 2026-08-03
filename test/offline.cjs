@@ -33,6 +33,11 @@ const {
 const { TetherRuntime } = require('../runtime/tether-runtime.cjs');
 const { createMemoryChannel } = require('../runtime/channels/memory-channel.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
+const { ToolJournal, sha256: toolSha256 } = require('../runtime/tools/tool-journal.cjs');
+const {
+  canonicalJson,
+  createWorkspaceToolRuntime,
+} = require('../runtime/tools/workspace-tools.cjs');
 const { validateMemoryBundle } = loadSharedMemoryModule('semantic-memory-validators.js');
 const { SemanticMemoryStore } = loadSharedMemoryModule('semantic-memory-store.js');
 const {
@@ -79,6 +84,7 @@ const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
 const { findStaleManagedPaths } = require('../scripts/export-public-snapshot.cjs');
 const { verifyFileLock } = require('../scripts/verify-export-lock.cjs');
 const { usage: memoryCommandUsage } = require('../bin/tether-memory.cjs');
+const { usage: toolsCommandUsage } = require('../bin/tether-tools.cjs');
 
 const { normalizeCardUserAddress } = loadSharedMemoryModule('memory-card-address.js');
 const { cardMarkdownPath } = loadSharedMemoryModule('memory-card-files.js');
@@ -192,6 +198,10 @@ async function main() {
     assert.equal(exampleConfig.agent.id, 'agent');
     assert.match(exampleConfig.persona.prompt, /same continuous agent/);
     assert.equal(exampleConfig.memory.semantic.mode, 'cards');
+    assert.equal(exampleConfig.tools.enabled, true);
+    assert.equal(exampleConfig.tools.workspaceRoots[0].id, 'workspace');
+    assert.equal(path.isAbsolute(exampleConfig.tools.workspaceRoots[0].path), true);
+    assert.match(toolsCommandUsage(), /tether-tools approve/);
     assert.throws(
       () => validateConfig({
         ...exampleConfig,
@@ -209,6 +219,11 @@ async function main() {
       }),
       /Missing required provider credential env/,
     );
+    assert.doesNotThrow(() => loadTetherConfig(exampleConfigPath, {
+      privateOverlayPath: path.join(root, 'missing-private-overlay.json'),
+      env: {},
+      resolveCredentials: false,
+    }));
     const configEnvelope = {
       agent: { id: 'agent', displayName: 'Agent' },
       owner: { entityId: 'owner', displayName: 'Owner' },
@@ -317,6 +332,26 @@ async function main() {
         providers: [providerConfig()],
       }),
       /requires an embedding provider/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        tools: { enabled: true, workspaceRoots: [] },
+        providers: [providerConfig()],
+      }),
+      /requires at least one workspace root/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        tools: {
+          enabled: true,
+          workspaceRoots: [{ id: 'Bad Root', path: './workspace' }],
+          policies: { telegramGroup: { write: 'always' } },
+        },
+        providers: [providerConfig()],
+      }),
+      /stable lowercase identifier|must be allow, approval, or deny/,
     );
     const headerEnvConfigPath = path.join(root, 'header-env-config.json');
     fs.writeFileSync(headerEnvConfigPath, JSON.stringify({
@@ -1614,6 +1649,229 @@ async function main() {
       fetchImpl: async () => { throw new Error('not called'); },
     }));
 
+    const toolStateRoot = path.join(root, 'workspace-tools');
+    const workspaceRoot = path.join(toolStateRoot, 'workspace');
+    const toolConfig = {
+      storage: { root: toolStateRoot },
+      tools: {
+        enabled: true,
+        maxIterations: 3,
+        maxReadBytes: 128,
+        maxWriteBytes: 256,
+        maxDirectoryEntries: 10,
+        workspaceRoots: [{ id: 'workspace', path: workspaceRoot }],
+        policies: {
+          terminal: { read: 'allow', write: 'allow' },
+          telegramPrivate: { read: 'allow', write: 'approval' },
+          telegramGroup: { read: 'deny', write: 'deny' },
+          default: { read: 'deny', write: 'deny' },
+        },
+      },
+    };
+    const workspaceTools = createWorkspaceToolRuntime({ config: toolConfig, storageRoot: toolStateRoot });
+    assert.equal(workspaceTools.definitions({ channelId: 'terminal' }).length, 3);
+    assert.equal(workspaceTools.definitions({ channelId: 'telegram', isGroup: true }).length, 0);
+    const terminalToolContext = { causalId: 'tools:terminal:1', channelId: 'terminal' };
+    const toolWrite = await workspaceTools.execute({
+      id: 'write-1',
+      name: 'write_workspace_file',
+      arguments: { root: 'workspace', path: 'notes/one.txt', content: 'durable text' },
+    }, terminalToolContext);
+    assert.equal(toolWrite.ok, true);
+    assert.equal(fs.readFileSync(path.join(workspaceRoot, 'notes', 'one.txt'), 'utf8'), 'durable text');
+    const toolRead = await workspaceTools.execute({
+      id: 'read-1',
+      name: 'read_workspace_file',
+      arguments: { root: 'workspace', path: 'notes/one.txt' },
+    }, terminalToolContext);
+    assert.equal(toolRead.content, 'durable text');
+    const toolList = await workspaceTools.execute({
+      id: 'list-1',
+      name: 'list_workspace_directory',
+      arguments: { root: 'workspace', path: 'notes' },
+    }, terminalToolContext);
+    assert.deepEqual(toolList.entries, [{ name: 'one.txt', type: 'file' }]);
+    const replayedToolWrite = await workspaceTools.execute({
+      id: 'write-1',
+      name: 'write_workspace_file',
+      arguments: { root: 'workspace', path: 'notes/one.txt', content: 'durable text' },
+    }, terminalToolContext);
+    assert.equal(replayedToolWrite.replayed, true);
+    const reusedCallId = await workspaceTools.execute({
+      id: 'write-1',
+      name: 'write_workspace_file',
+      arguments: { root: 'workspace', path: 'notes/one.txt', content: 'different' },
+    }, terminalToolContext);
+    assert.equal(reusedCallId.error.code, 'TETHER_TOOL_OPERATION_MISMATCH');
+    const traversalResult = await workspaceTools.execute({
+      id: 'read-traversal',
+      name: 'read_workspace_file',
+      arguments: { root: 'workspace', path: '../outside.txt' },
+    }, terminalToolContext);
+    assert.equal(traversalResult.error.code, 'TETHER_TOOL_PATH_INVALID');
+    fs.writeFileSync(path.join(workspaceRoot, '.env'), 'SECRET=synthetic');
+    const hiddenResult = await workspaceTools.execute({
+      id: 'read-hidden',
+      name: 'read_workspace_file',
+      arguments: { root: 'workspace', path: '.env' },
+    }, terminalToolContext);
+    assert.equal(hiddenResult.error.code, 'TETHER_TOOL_PATH_SENSITIVE');
+    const outsideToolFile = path.join(toolStateRoot, 'outside.txt');
+    fs.writeFileSync(outsideToolFile, 'outside');
+    fs.symlinkSync(outsideToolFile, path.join(workspaceRoot, 'linked.txt'));
+    const symlinkResult = await workspaceTools.execute({
+      id: 'read-link',
+      name: 'read_workspace_file',
+      arguments: { root: 'workspace', path: 'linked.txt' },
+    }, terminalToolContext);
+    assert.equal(symlinkResult.error.code, 'TETHER_TOOL_PATH_SYMLINK');
+    fs.writeFileSync(path.join(workspaceRoot, 'binary.bin'), Buffer.from([0xc3, 0x28]));
+    const binaryResult = await workspaceTools.execute({
+      id: 'read-binary',
+      name: 'read_workspace_file',
+      arguments: { root: 'workspace', path: 'binary.bin' },
+    }, terminalToolContext);
+    assert.equal(binaryResult.error.code, 'TETHER_TOOL_NOT_UTF8');
+    const groupDenied = await workspaceTools.execute({
+      id: 'group-read',
+      name: 'read_workspace_file',
+      arguments: { root: 'workspace', path: 'notes/one.txt' },
+    }, { causalId: 'tools:group:1', channelId: 'telegram', isGroup: true });
+    assert.equal(groupDenied.error.code, 'TETHER_TOOL_DENIED');
+
+    const approvalCall = {
+      id: 'private-write-1',
+      name: 'write_workspace_file',
+      arguments: { root: 'workspace', path: 'approved.txt', content: 'approved content' },
+    };
+    let approvalError;
+    try {
+      await workspaceTools.execute(
+        approvalCall,
+        { causalId: 'tools:private:1', channelId: 'telegram', owner: true },
+      );
+    } catch (error) { approvalError = error; }
+    assert.equal(approvalError.code, 'TETHER_TOOL_APPROVAL_REQUIRED');
+    assert.equal(approvalError.pauseRetry, true);
+    assert.match(approvalError.message, /approval:/);
+    assert.equal(classifyDurableError(approvalError).action, 'pause');
+    assert.equal(workspaceTools.journal.listApprovals({ state: 'pending' }).length, 1);
+    let secondApprovalError;
+    try {
+      await workspaceTools.execute(
+        { ...approvalCall, id: 'private-write-2' },
+        { causalId: 'tools:private:2', channelId: 'telegram', owner: true },
+      );
+    } catch (error) { secondApprovalError = error; }
+    assert.notEqual(secondApprovalError.approvalId, approvalError.approvalId);
+    workspaceTools.journal.resolveApproval(approvalError.approvalId, 'approved');
+    const approvedWrite = await workspaceTools.execute(
+      approvalCall,
+      { causalId: 'tools:private:1', channelId: 'telegram', owner: true },
+    );
+    assert.equal(approvedWrite.ok, true);
+    workspaceTools.journal.resolveApproval(secondApprovalError.approvalId, 'denied');
+    const deniedWrite = await workspaceTools.execute(
+      { ...approvalCall, id: 'private-write-2' },
+      { causalId: 'tools:private:2', channelId: 'telegram', owner: true },
+    );
+    assert.equal(deniedWrite.status, 'denied');
+
+    function preparedWriteIdentity(causalId, toolCallId, args) {
+      const fingerprint = toolSha256(canonicalJson({
+        schemaVersion: 1,
+        scope: 'terminal',
+        toolName: 'write_workspace_file',
+        args,
+      }));
+      const operationKey = `operation:${toolSha256(canonicalJson({ causalId, toolCallId })).slice(0, 32)}`;
+      return { fingerprint, operationKey };
+    }
+    const preparedSafeArgs = { root: 'workspace', path: 'prepared-safe.txt', content: 'safe' };
+    const preparedSafe = preparedWriteIdentity('tools:prepared:1', 'prepared-safe', preparedSafeArgs);
+    workspaceTools.journal.prepareOperation({
+      ...preparedSafe,
+      causalId: 'tools:prepared:1',
+      toolCallId: 'prepared-safe',
+      toolName: 'write_workspace_file',
+      details: {
+        prior: { exists: false, sha256: null, size: 0 },
+        desired: { exists: true, sha256: toolSha256('safe'), size: 4 },
+      },
+    });
+    assert.equal((await workspaceTools.execute({
+      id: 'prepared-safe', name: 'write_workspace_file', arguments: preparedSafeArgs,
+    }, { causalId: 'tools:prepared:1', channelId: 'terminal' })).ok, true);
+    const preparedRecoveredArgs = { root: 'workspace', path: 'prepared-recovered.txt', content: 'desired' };
+    const preparedRecovered = preparedWriteIdentity(
+      'tools:prepared:2',
+      'prepared-recovered',
+      preparedRecoveredArgs,
+    );
+    workspaceTools.journal.prepareOperation({
+      ...preparedRecovered,
+      causalId: 'tools:prepared:2',
+      toolCallId: 'prepared-recovered',
+      toolName: 'write_workspace_file',
+      details: {
+        prior: { exists: false, sha256: null, size: 0 },
+        desired: { exists: true, sha256: toolSha256('desired'), size: 7 },
+      },
+    });
+    fs.writeFileSync(path.join(workspaceRoot, 'prepared-recovered.txt'), 'desired');
+    assert.equal((await workspaceTools.execute({
+      id: 'prepared-recovered', name: 'write_workspace_file', arguments: preparedRecoveredArgs,
+    }, { causalId: 'tools:prepared:2', channelId: 'terminal' })).replayed, true);
+    const preparedConflictArgs = { root: 'workspace', path: 'prepared-conflict.txt', content: 'desired' };
+    const preparedConflict = preparedWriteIdentity(
+      'tools:prepared:3',
+      'prepared-conflict',
+      preparedConflictArgs,
+    );
+    workspaceTools.journal.prepareOperation({
+      ...preparedConflict,
+      causalId: 'tools:prepared:3',
+      toolCallId: 'prepared-conflict',
+      toolName: 'write_workspace_file',
+      details: {
+        prior: { exists: false, sha256: null, size: 0 },
+        desired: { exists: true, sha256: toolSha256('desired'), size: 7 },
+      },
+    });
+    fs.writeFileSync(path.join(workspaceRoot, 'prepared-conflict.txt'), 'external change');
+    await assert.rejects(
+      workspaceTools.execute({
+        id: 'prepared-conflict', name: 'write_workspace_file', arguments: preparedConflictArgs,
+      }, { causalId: 'tools:prepared:3', channelId: 'terminal' }),
+      (error) => error.code === 'TETHER_TOOL_EFFECT_AMBIGUOUS' && error.manualRetryOnly === true,
+    );
+    const reservedJournal = new ToolJournal({ directory: path.join(toolStateRoot, 'reserved-journal') });
+    reservedJournal.beginTransaction('reserved-causal', 'request-hash');
+    reservedJournal.recordTransaction('reserved-causal', 'request-started', {
+      iteration: 0,
+      providerIndex: 0,
+      providerId: 'provider',
+    });
+    reservedJournal.recordTransaction('reserved-causal', 'provider-step', {
+      causalId: 'overridden',
+      event: 'overridden',
+      iteration: 0,
+      providerIndex: 0,
+      providerId: 'provider',
+      message: { role: 'assistant', content: 'done' },
+      result: { text: 'done' },
+    });
+    assert.equal(reservedJournal.transactionEvents('reserved-causal').at(-1).event, 'provider-step');
+    assert.throws(
+      () => new ToolJournal({ directory: (() => {
+        const directory = path.join(toolStateRoot, 'corrupt-journal');
+        fs.mkdirSync(directory, { recursive: true });
+        fs.writeFileSync(path.join(directory, 'tool-journal.jsonl'), '{"torn":');
+        return directory;
+      })() }),
+      (error) => error.code === 'TETHER_TOOL_JOURNAL_CORRUPT',
+    );
+
     let requestedBody = null;
     let requestedUrl = null;
     const openAi = createOpenAICompatibleProvider({
@@ -1699,6 +1957,286 @@ async function main() {
       }).respond({ messages: [] }),
       /Every configured provider failed/,
     );
+
+    const providerToolRoot = path.join(root, 'provider-tool-loop');
+    const providerToolConfig = {
+      storage: { root: providerToolRoot },
+      tools: {
+        enabled: true,
+        maxIterations: 3,
+        workspaceRoots: [{ id: 'workspace', path: path.join(providerToolRoot, 'workspace') }],
+        policies: {
+          terminal: { read: 'allow', write: 'allow' },
+          telegramPrivate: { read: 'allow', write: 'approval' },
+          telegramGroup: { read: 'deny', write: 'deny' },
+          default: { read: 'deny', write: 'deny' },
+        },
+      },
+    };
+    const providerToolBodies = [];
+    let providerToolFetches = 0;
+    const providerToolRuntime = createWorkspaceToolRuntime({
+      config: providerToolConfig,
+      storageRoot: providerToolRoot,
+    });
+    const providerWithTools = createOpenAICompatibleProvider({
+      providers: [{
+        id: 'tool-provider',
+        label: 'Tool Provider',
+        baseUrl: 'https://example.invalid/v1/chat/completions',
+        model: 'tool-model',
+      }],
+      toolRuntime: providerToolRuntime,
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        providerToolBodies.push(body);
+        providerToolFetches += 1;
+        if (providerToolFetches === 1) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                choices: [{
+                  finish_reason: 'tool_calls',
+                  message: {
+                    content: null,
+                    tool_calls: [{
+                      id: 'provider-write-1',
+                      type: 'function',
+                      function: {
+                        name: 'write_workspace_file',
+                        arguments: JSON.stringify({
+                          root: 'workspace',
+                          path: 'provider.txt',
+                          content: 'written by provider loop',
+                        }),
+                      },
+                    }],
+                  },
+                }],
+              };
+            },
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { choices: [{ finish_reason: 'stop', message: { content: 'tool loop complete' } }] };
+          },
+        };
+      },
+    });
+    const providerToolRequest = {
+      messages: [{ role: 'user', content: 'Write the provider test file.' }],
+      causalId: 'provider-tool-causal',
+      toolContext: { channelId: 'terminal' },
+    };
+    const providerToolResult = await providerWithTools.respond(providerToolRequest);
+    assert.equal(providerToolResult.text, 'tool loop complete');
+    assert.equal(providerToolBodies[0].tools.length, 3);
+    assert.equal(providerToolBodies[0].parallel_tool_calls, false);
+    assert.equal(providerToolBodies[1].messages.at(-1).role, 'tool');
+    assert.equal(
+      fs.readFileSync(path.join(providerToolRoot, 'workspace', 'provider.txt'), 'utf8'),
+      'written by provider loop',
+    );
+    const providerReplayRuntime = createWorkspaceToolRuntime({
+      config: providerToolConfig,
+      storageRoot: providerToolRoot,
+    });
+    const replayProvider = createOpenAICompatibleProvider({
+      providers: [{
+        id: 'tool-provider',
+        label: 'Tool Provider',
+        baseUrl: 'https://example.invalid/v1/chat/completions',
+        model: 'tool-model',
+      }],
+      toolRuntime: providerReplayRuntime,
+      fetchImpl: async () => { throw new Error('durable final must not refetch'); },
+    });
+    const replayedProviderResult = await replayProvider.respond(providerToolRequest);
+    assert.equal(replayedProviderResult.text, 'tool loop complete');
+    assert.equal(replayedProviderResult.replayed, true);
+    const changedRootConfig = {
+      ...providerToolConfig,
+      tools: {
+        ...providerToolConfig.tools,
+        workspaceRoots: [{ id: 'workspace', path: path.join(providerToolRoot, 'different-workspace') }],
+      },
+    };
+    const changedContractProvider = createOpenAICompatibleProvider({
+      providers: [{
+        id: 'tool-provider',
+        label: 'Tool Provider',
+        baseUrl: 'https://example.invalid/v1/chat/completions',
+        model: 'tool-model',
+      }],
+      toolRuntime: createWorkspaceToolRuntime({
+        config: changedRootConfig,
+        storageRoot: providerToolRoot,
+      }),
+      fetchImpl: async () => { throw new Error('contract mismatch must not fetch'); },
+    });
+    await assert.rejects(
+      changedContractProvider.respond(providerToolRequest),
+      (error) => error.code === 'TETHER_TOOL_TRANSACTION_MISMATCH',
+    );
+
+    const ambiguousToolRoot = path.join(root, 'provider-tool-ambiguous');
+    const ambiguousToolConfig = {
+      ...providerToolConfig,
+      storage: { root: ambiguousToolRoot },
+      tools: {
+        ...providerToolConfig.tools,
+        workspaceRoots: [{ id: 'workspace', path: path.join(ambiguousToolRoot, 'workspace') }],
+      },
+    };
+    const ambiguousToolRuntime = createWorkspaceToolRuntime({
+      config: ambiguousToolConfig,
+      storageRoot: ambiguousToolRoot,
+    });
+    const ambiguousToolProvider = createOpenAICompatibleProvider({
+      providers: [{
+        id: 'tool-provider',
+        label: 'Tool Provider',
+        baseUrl: 'https://example.invalid/v1/chat/completions',
+        model: 'tool-model',
+      }],
+      toolRuntime: ambiguousToolRuntime,
+      fetchImpl: async () => { throw new Error('synthetic connection loss'); },
+    });
+    const ambiguousToolRequest = {
+      messages: [{ role: 'user', content: 'ambiguous request' }],
+      causalId: 'provider-tool-ambiguous',
+      toolContext: { channelId: 'terminal' },
+    };
+    await assert.rejects(
+      ambiguousToolProvider.respond(ambiguousToolRequest),
+      (error) => error.code === 'TETHER_TOOL_INFERENCE_AMBIGUOUS'
+        && error.manualRetryOnly === true,
+    );
+    assert.equal(ambiguousToolProvider.canResume('provider-tool-ambiguous'), false);
+    let forbiddenAmbiguousRefetches = 0;
+    const ambiguousRestartProvider = createOpenAICompatibleProvider({
+      providers: [{
+        id: 'tool-provider',
+        label: 'Tool Provider',
+        baseUrl: 'https://example.invalid/v1/chat/completions',
+        model: 'tool-model',
+      }],
+      toolRuntime: createWorkspaceToolRuntime({
+        config: ambiguousToolConfig,
+        storageRoot: ambiguousToolRoot,
+      }),
+      fetchImpl: async () => { forbiddenAmbiguousRefetches += 1; throw new Error('must not refetch'); },
+    });
+    await assert.rejects(
+      ambiguousRestartProvider.respond(ambiguousToolRequest),
+      (error) => error.code === 'TETHER_TOOL_INFERENCE_AMBIGUOUS',
+    );
+    assert.equal(forbiddenAmbiguousRefetches, 0);
+
+    const approvalRuntimeRoot = path.join(root, 'approval-runtime');
+    const approvalRuntimeConfig = {
+      storage: { root: approvalRuntimeRoot },
+      tools: {
+        ...providerToolConfig.tools,
+        workspaceRoots: [{ id: 'workspace', path: path.join(approvalRuntimeRoot, 'workspace') }],
+      },
+    };
+    const approvalRuntimeTools = createWorkspaceToolRuntime({
+      config: approvalRuntimeConfig,
+      storageRoot: approvalRuntimeRoot,
+    });
+    let approvalRuntimeFetches = 0;
+    const approvalRuntimeProvider = createOpenAICompatibleProvider({
+      providers: [{
+        id: 'approval-provider',
+        label: 'Approval Provider',
+        baseUrl: 'https://example.invalid/v1/chat/completions',
+        model: 'approval-model',
+      }],
+      toolRuntime: approvalRuntimeTools,
+      fetchImpl: async (_url, options) => {
+        approvalRuntimeFetches += 1;
+        const body = JSON.parse(options.body);
+        if (approvalRuntimeFetches === 1) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return { choices: [{ message: {
+                content: null,
+                tool_calls: [{
+                  id: 'approval-write-call',
+                  type: 'function',
+                  function: {
+                    name: 'write_workspace_file',
+                    arguments: JSON.stringify({
+                      root: 'workspace', path: 'approved-runtime.txt', content: 'approved at runtime',
+                    }),
+                  },
+                }],
+              } }] };
+            },
+          };
+        }
+        assert.equal(body.messages.at(-1).role, 'tool');
+        return {
+          ok: true,
+          status: 200,
+          async json() { return { choices: [{ message: { content: 'approved runtime complete' } }] }; },
+        };
+      },
+    });
+    const approvalMemory = new AppendOnlyMemory({
+      directory: path.join(approvalRuntimeRoot, 'memory'),
+    });
+    const approvalSession = new SelfsameSession({
+      stateFile: path.join(approvalRuntimeRoot, 'session.json'),
+      agentId: 'agent',
+      createSession: async () => 'approval-session',
+      resumeSession: async (sessionId) => approvalMemory.verifySession(sessionId).passed,
+      canCreateSession: async () => !approvalMemory.hasExistingAuthority(),
+    });
+    await approvalSession.open({ allowCreate: true });
+    const approvalChannel = createMemoryChannel('telegram');
+    const approvalRuntime = new TetherRuntime({
+      session: approvalSession,
+      memory: approvalMemory,
+      provider: approvalRuntimeProvider,
+      log: () => {},
+    }).attach(approvalChannel);
+    const approvalInput = {
+      messageId: 'telegram:approval-runtime',
+      text: 'write after exact approval',
+      metadata: { owner: true, senderId: 'owner', isGroup: false },
+    };
+    let runtimeApprovalError;
+    try { await approvalChannel.receive(approvalInput); } catch (error) { runtimeApprovalError = error; }
+    assert.equal(runtimeApprovalError.code, 'TETHER_TOOL_APPROVAL_REQUIRED');
+    const approvalCausal = approvalRuntime.causal.prepareInput({
+      sessionId: 'approval-session',
+      channelId: 'telegram',
+      messageId: approvalInput.messageId,
+      role: 'user',
+      text: approvalInput.text,
+      metadata: approvalInput.metadata,
+    });
+    assert.equal(approvalRuntime.causal.state(approvalCausal.causalId).state, 'inference-started');
+    approvalRuntimeTools.journal.resolveApproval(runtimeApprovalError.approvalId, 'approved');
+    const approvalCompleted = await approvalChannel.receive(approvalInput);
+    assert.equal(approvalCompleted.assistant.text, 'approved runtime complete');
+    assert.equal(approvalRuntimeFetches, 2, 'resume must continue after the durable provider tool step');
+    assert.equal(
+      fs.readFileSync(path.join(approvalRuntimeRoot, 'workspace', 'approved-runtime.txt'), 'utf8'),
+      'approved at runtime',
+    );
+    const approvalDuplicate = await approvalChannel.receive(approvalInput);
+    assert.equal(approvalDuplicate.alreadyDelivered, true);
+    assert.equal(approvalRuntimeFetches, 2);
 
     const lockRoot = path.join(root, 'lock-test');
     fs.mkdirSync(lockRoot);

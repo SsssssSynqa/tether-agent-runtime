@@ -286,7 +286,9 @@ class TetherRuntime {
     });
     let causalRecord = prepared.record;
 
-    if (causalRecord.state === 'inference-started') {
+    const resumableInference = causalRecord.state === 'inference-started'
+      && this.provider.canResume?.(causalRecord.causalId) === true;
+    if (causalRecord.state === 'inference-started' && !resumableInference) {
       throw new CausalStateError(
         'Inference started without a durable output; refusing ambiguous reinference',
         'TETHER_INFERENCE_AMBIGUOUS',
@@ -337,7 +339,7 @@ class TetherRuntime {
         alreadyDelivered: false,
       };
     }
-    if (!['received', 'inference-rejected'].includes(causalRecord.state)) {
+    if (!['received', 'inference-rejected'].includes(causalRecord.state) && !resumableInference) {
       throw new CausalStateError(
         `Unsupported causal state ${causalRecord.state}`,
         'TETHER_CAUSAL_STATE_UNKNOWN',
@@ -363,7 +365,9 @@ class TetherRuntime {
           metadata: message.metadata || {},
         }).record;
     if (!this.layeredMemory) this._checkpoint(state.sessionId);
-    causalRecord = this.causal.markInferenceStarted(causalRecord.causalId);
+    if (!resumableInference) {
+      causalRecord = this.causal.markInferenceStarted(causalRecord.causalId);
+    }
     const messages = await this._providerMessages({
       ...user,
       metadata: { ...(user.metadata || {}), causalId: causalRecord.causalId },
@@ -373,9 +377,17 @@ class TetherRuntime {
       result = await this.provider.respond({
         sessionId: state.sessionId,
         channelId: channel.id,
+        causalId: causalRecord.causalId,
         messages,
         sourceMessage: user,
         sourceParts: message.sourceParts || [],
+        toolContext: {
+          channelId: channel.id,
+          trustZone: message.metadata?.trustZone || null,
+          isGroup: message.metadata?.isGroup === true,
+          senderId: message.metadata?.senderId || null,
+          owner: message.metadata?.owner === true,
+        },
       });
       if (typeof channel.prepareOutput === 'function') {
         result = await channel.prepareOutput({

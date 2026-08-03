@@ -274,6 +274,66 @@ function validateConfig(config) {
       }
     }
   }
+  const tools = config.tools || {};
+  if (config.tools != null && !isObject(config.tools)) {
+    errors.push('tools must be an object');
+  }
+  if (tools.enabled != null && typeof tools.enabled !== 'boolean') {
+    errors.push('tools.enabled must be boolean');
+  }
+  for (const field of ['maxIterations', 'maxReadBytes', 'maxWriteBytes', 'maxDirectoryEntries']) {
+    if (
+      tools[field] != null
+      && (!Number.isSafeInteger(Number(tools[field])) || Number(tools[field]) <= 0)
+    ) {
+      errors.push(`tools.${field} must be a positive integer`);
+    }
+  }
+  if (tools.workspaceRoots != null && !Array.isArray(tools.workspaceRoots)) {
+    errors.push('tools.workspaceRoots must be an array');
+  }
+  const workspaceRootIds = [];
+  for (const [index, root] of (tools.workspaceRoots || []).entries()) {
+    if (!isObject(root)) {
+      errors.push(`tools.workspaceRoots[${index}] must be an object`);
+      continue;
+    }
+    const rootId = String(root.id || '');
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(rootId)) {
+      errors.push(`tools.workspaceRoots[${index}].id must be a stable lowercase identifier`);
+    }
+    if (!String(root.path || '').trim()) {
+      errors.push(`tools.workspaceRoots[${index}].path is required`);
+    }
+    workspaceRootIds.push(rootId);
+  }
+  if (new Set(workspaceRootIds).size !== workspaceRootIds.length) {
+    errors.push('tools.workspaceRoots ids must be unique');
+  }
+  if (tools.enabled === true && workspaceRootIds.length === 0) {
+    errors.push('tools.enabled requires at least one workspace root');
+  }
+  if (tools.policies != null && !isObject(tools.policies)) {
+    errors.push('tools.policies must be an object');
+  }
+  const validToolScopes = new Set(['terminal', 'telegramPrivate', 'telegramGroup', 'default']);
+  for (const [scope, policy] of Object.entries(tools.policies || {})) {
+    if (!validToolScopes.has(scope)) {
+      errors.push(`tools.policies.${scope} is not a recognized channel scope`);
+      continue;
+    }
+    if (!isObject(policy)) {
+      errors.push(`tools.policies.${scope} must be an object`);
+      continue;
+    }
+    for (const field of Object.keys(policy)) {
+      if (!['read', 'write'].includes(field)) {
+        errors.push(`tools.policies.${scope}.${field} is not a recognized capability`);
+      } else if (!['allow', 'approval', 'deny'].includes(String(policy[field]))) {
+        errors.push(`tools.policies.${scope}.${field} must be allow, approval, or deny`);
+      }
+    }
+  }
   const memory = config.memory || {};
   const numericMemoryFields = [
     'historyTokenBudget',
@@ -387,6 +447,7 @@ function resolveWithin(baseDirectory, value) {
 function loadTetherConfig(configPath, {
   privateOverlayPath = process.env.TETHER_PRIVATE_CONFIG || null,
   env = process.env,
+  resolveCredentials = true,
 } = {}) {
   const resolvedConfigPath = path.resolve(configPath);
   const baseDirectory = path.dirname(resolvedConfigPath);
@@ -412,6 +473,12 @@ function loadTetherConfig(configPath, {
       config.telegram.attachmentDirectory,
     );
   }
+  if (Array.isArray(config.tools?.workspaceRoots)) {
+    config.tools.workspaceRoots = config.tools.workspaceRoots.map((root) => ({
+      ...root,
+      path: resolveWithin(baseDirectory, root.path),
+    }));
+  }
   const personaPolicyFile = config.persona?.policyFile
     ? resolveWithin(baseDirectory, config.persona.policyFile)
     : null;
@@ -426,17 +493,19 @@ function loadTetherConfig(configPath, {
       prompt: personaPrompt,
     },
     providers: (config.providers || []).map((provider, index) => {
-      const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] || null : null;
-      if (provider.apiKeyEnv && !apiKey) {
+      const apiKey = resolveCredentials && provider.apiKeyEnv
+        ? env[provider.apiKeyEnv] || null
+        : null;
+      if (resolveCredentials && provider.apiKeyEnv && !apiKey) {
         throw new Error(`Missing required provider credential env: ${provider.apiKeyEnv} (providers[${index}])`);
       }
       const envHeaders = {};
       for (const [headerName, envName] of Object.entries(provider.headerEnv || {})) {
-        const value = env[envName];
-        if (!value) {
+        const value = resolveCredentials ? env[envName] : null;
+        if (resolveCredentials && !value) {
           throw new Error(`Missing required provider header credential env: ${envName} (providers[${index}])`);
         }
-        envHeaders[headerName] = value;
+        if (value) envHeaders[headerName] = value;
       }
       return { ...provider, headers: { ...(provider.headers || {}), ...envHeaders }, apiKey };
     }),

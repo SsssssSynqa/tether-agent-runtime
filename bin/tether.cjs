@@ -24,6 +24,7 @@ const {
   createTelegramGroupCoordinator,
 } = require('../runtime/channels/telegram-group.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
+const { createWorkspaceToolRuntime } = require('../runtime/tools/workspace-tools.cjs');
 
 function durableModule(name) {
   const publicRuntimePath = path.join(__dirname, '..', 'runtime', 'durable', name);
@@ -50,6 +51,9 @@ function diagnosticCode(error) {
     case 'TETHER_INSTANCE_LOCK_CORRUPT': return 'TETHER_INSTANCE_LOCK_CORRUPT';
     case 'TETHER_CAUSAL_CORRUPT': return 'TETHER_CAUSAL_CORRUPT';
     case 'TETHER_INFERENCE_AMBIGUOUS': return 'TETHER_INFERENCE_AMBIGUOUS';
+    case 'TETHER_TOOL_INFERENCE_AMBIGUOUS': return 'TETHER_TOOL_INFERENCE_AMBIGUOUS';
+    case 'TETHER_TOOL_APPROVAL_REQUIRED': return 'TETHER_TOOL_APPROVAL_REQUIRED';
+    case 'TETHER_TOOL_EFFECT_AMBIGUOUS': return 'TETHER_TOOL_EFFECT_AMBIGUOUS';
     case 'TETHER_DELIVERY_AMBIGUOUS': return 'TETHER_DELIVERY_AMBIGUOUS';
     default: return 'TETHER_UNEXPECTED_FAILURE';
   }
@@ -118,7 +122,11 @@ async function main() {
       headers: provider.headers,
       timeoutMs: provider.timeoutMs,
     }));
-  const provider = createOpenAICompatibleProvider({ providers });
+  const toolRuntime = createWorkspaceToolRuntime({
+    config,
+    storageRoot: config.storage.root,
+  });
+  const provider = createOpenAICompatibleProvider({ providers, toolRuntime });
   const memory = new LayeredMemory({
     directory: path.join(config.storage.root, 'memory'),
     provider,
