@@ -1,0 +1,10 @@
+<svg width="192" height="192" viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Tether mark</title>
+  <rect width="192" height="192" rx="48" fill="#151619"/>
+  <circle cx="55" cy="55" r="22" fill="#EF6F52"/>
+  <circle cx="137" cy="137" r="22" fill="#EEEFF2"/>
+  <path d="M69.5 69.5C95 95 96.8 100.2 122.5 122.5" stroke="#EF6F52" stroke-width="12" stroke-linecap="round"/>
+  <path d="M72 119C84 106 86 88 73 75" stroke="#EEEFF2" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="55" cy="55" r="8" fill="#151619"/>
+  <circle cx="137" cy="137" r="8" fill="#151619"/>
+</svg>

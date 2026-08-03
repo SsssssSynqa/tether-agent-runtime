@@ -124,7 +124,7 @@ const forbiddenFilePatterns = [
   /(^|\/)\.env(?:\.|$)/i,
   /(^|\/)(?:offset|session)\.txt$/i,
   /(^|\/)telegram-live\.jsonl$/i,
-  /conversation-history/i,
+  /(^|\/)[^/]*conversation-history[^/]*\.(?:json|jsonl)$/i,
   /(^|\/)\.[A-Za-z0-9_-]+-(?:session|conversation-history|terminal-events)(?:\.|$)/i,
   /\.(?:log|sqlite|sqlite3|db|pem|p12|pfx)$/i,
   /\.(?:bak|backup)(?:[-.]|$)/i,

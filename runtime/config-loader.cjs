@@ -60,9 +60,155 @@ function validateConfig(config) {
   if (!config.agent?.id) errors.push('agent.id is required');
   if (!config.agent?.displayName) errors.push('agent.displayName is required');
   if (!config.owner?.entityId) errors.push('owner.entityId is required');
+  if (!config.owner?.displayName) errors.push('owner.displayName is required');
   if (!config.storage?.root) errors.push('storage.root is required');
   if (Object.hasOwn(config.telegram || {}, 'token')) {
     errors.push('telegram.token is forbidden; use telegram.tokenEnv');
+  }
+  if (
+    config.telegram?.tokenEnv != null
+    && !/^[A-Z_][A-Z0-9_]*$/.test(String(config.telegram.tokenEnv))
+  ) {
+    errors.push('telegram.tokenEnv must be an environment variable name');
+  }
+  if (config.telegram?.allowedGroups != null && !isObject(config.telegram.allowedGroups)) {
+    errors.push('telegram.allowedGroups must be an object');
+  }
+  for (const [chatId, policy] of Object.entries(config.telegram?.allowedGroups || {})) {
+    if (!chatId || !isObject(policy)) {
+      errors.push(`telegram.allowedGroups.${chatId || '<empty>'} must be an object`);
+      continue;
+    }
+    if (policy.mode != null && !['all', 'mention'].includes(String(policy.mode))) {
+      errors.push(`telegram.allowedGroups.${chatId}.mode must be all or mention`);
+    }
+    if (policy.mentionPatterns != null && (
+      !Array.isArray(policy.mentionPatterns)
+      || policy.mentionPatterns.some((value) => !String(value || '').trim())
+    )) {
+      errors.push(`telegram.allowedGroups.${chatId}.mentionPatterns must be non-empty strings`);
+    }
+    for (const field of ['enabled', 'ownerAlways', 'ignoreBotMessages']) {
+      if (policy[field] != null && typeof policy[field] !== 'boolean') {
+        errors.push(`telegram.allowedGroups.${chatId}.${field} must be boolean`);
+      }
+    }
+  }
+  for (const field of ['noReplyGroupIds', 'rateLimitedGroupIds']) {
+    if (config.telegram?.[field] != null && !Array.isArray(config.telegram[field])) {
+      errors.push(`telegram.${field} must be an array`);
+    }
+  }
+  for (const field of [
+    'pollRetryDelayMs',
+    'retryIntervalMs',
+    'maxAttempts',
+    'retryBaseMs',
+    'retryMaxMs',
+    'durableInboxMaxBytes',
+    'maxImageBytes',
+    'maxFileBytes',
+    'maxFilePreviewChars',
+    'maxQuotedChars',
+    'groupMaxReplies',
+    'groupMaxPendingMessages',
+  ]) {
+    if (
+      config.telegram?.[field] != null
+      && (!Number.isFinite(Number(config.telegram[field])) || Number(config.telegram[field]) <= 0)
+    ) {
+      errors.push(`telegram.${field} must be a positive number`);
+    }
+  }
+  const supervision = config.supervision || {};
+  if (config.supervision != null && !isObject(config.supervision)) {
+    errors.push('supervision must be an object');
+  }
+  for (const field of [
+    'heartbeatIntervalMs',
+    'monitorIntervalMs',
+    'heartbeatStaleMs',
+    'readyTimeoutMs',
+    'restartBaseMs',
+    'restartMaxMs',
+    'restartWindowMs',
+    'maxRestartsPerWindow',
+    'shutdownGraceMs',
+  ]) {
+    if (
+      supervision[field] != null
+      && (!Number.isSafeInteger(Number(supervision[field])) || Number(supervision[field]) <= 0)
+    ) {
+      errors.push(`supervision.${field} must be a positive integer`);
+    }
+  }
+  const effectiveSupervision = {
+    heartbeatIntervalMs: Number(supervision.heartbeatIntervalMs ?? 5_000),
+    monitorIntervalMs: Number(supervision.monitorIntervalMs ?? 5_000),
+    heartbeatStaleMs: Number(supervision.heartbeatStaleMs ?? 30_000),
+    readyTimeoutMs: Number(supervision.readyTimeoutMs ?? 60_000),
+    restartBaseMs: Number(supervision.restartBaseMs ?? 1_000),
+    restartMaxMs: Number(supervision.restartMaxMs ?? 60_000),
+  };
+  if (
+    effectiveSupervision.heartbeatStaleMs
+      < effectiveSupervision.heartbeatIntervalMs + effectiveSupervision.monitorIntervalMs
+  ) {
+    errors.push(
+      'supervision.heartbeatStaleMs must be at least heartbeatIntervalMs + monitorIntervalMs',
+    );
+  }
+  if (
+    effectiveSupervision.readyTimeoutMs <= effectiveSupervision.heartbeatIntervalMs
+  ) {
+    errors.push('supervision.readyTimeoutMs must exceed heartbeatIntervalMs');
+  }
+  if (
+    effectiveSupervision.restartMaxMs < effectiveSupervision.restartBaseMs
+  ) {
+    errors.push('supervision.restartMaxMs must not be smaller than restartBaseMs');
+  }
+  if (
+    config.telegram?.groupRepairAttempts != null
+    && (!Number.isSafeInteger(Number(config.telegram.groupRepairAttempts))
+      || Number(config.telegram.groupRepairAttempts) < 0)
+  ) {
+    errors.push('telegram.groupRepairAttempts must be zero or a positive integer');
+  }
+  if (
+    config.telegram?.groupAllowedReactions != null
+    && (!Array.isArray(config.telegram.groupAllowedReactions)
+      || config.telegram.groupAllowedReactions.some((value) => !String(value || '').trim()))
+  ) {
+    errors.push('telegram.groupAllowedReactions must be non-empty strings');
+  }
+  if (config.telegram?.groupBatchTiming != null && !isObject(config.telegram.groupBatchTiming)) {
+    errors.push('telegram.groupBatchTiming must be an object');
+  }
+  for (const [field, value] of Object.entries(config.telegram?.groupBatchTiming || {})) {
+    if (![
+      'singleMessageMs',
+      'sameSenderIdleMs',
+      'sameSenderMaxMs',
+      'multiSenderIdleMs',
+      'multiSenderMaxMs',
+    ].includes(field) || !Number.isFinite(Number(value)) || Number(value) < 0) {
+      errors.push(`telegram.groupBatchTiming.${field} must be zero or a positive number`);
+    }
+  }
+  if (
+    config.telegram?.pollTimeoutSeconds != null
+    && (!Number.isFinite(Number(config.telegram.pollTimeoutSeconds))
+      || Number(config.telegram.pollTimeoutSeconds) < 0)
+  ) {
+    errors.push('telegram.pollTimeoutSeconds must be zero or a positive number');
+  }
+  if (
+    config.telegram?.retryBaseMs != null
+    && config.telegram?.retryMaxMs != null
+    && Number(config.telegram.retryMaxMs) < Number(config.telegram.retryBaseMs)
+  ) {
+    errors.push('telegram.retryMaxMs must not be smaller than telegram.retryBaseMs');
   }
   if (!Array.isArray(config.providers) || config.providers.length === 0) {
     errors.push('at least one provider is required');
@@ -72,6 +218,19 @@ function validateConfig(config) {
     if (!provider.label) errors.push(`providers[${index}].label is required`);
     if (!provider.adapter) errors.push(`providers[${index}].adapter is required`);
     if (!provider.model) errors.push(`providers[${index}].model is required`);
+    for (const field of [
+      'foldModel',
+      'memoryModel',
+      'semanticExtractorModel',
+      'semanticVerifierModel',
+      'semanticHighRiskModel',
+      'embeddingModel',
+      'embeddingsUrl',
+    ]) {
+      if (provider[field] != null && !String(provider[field]).trim()) {
+        errors.push(`providers[${index}].${field} must be a non-empty string when supplied`);
+      }
+    }
     if (Object.hasOwn(provider, 'apiKey')) {
       errors.push(`providers[${index}].apiKey is forbidden; use apiKeyEnv`);
     }
@@ -101,6 +260,21 @@ function validateConfig(config) {
     if (provider.adapter === 'openai-compatible' && !provider.baseUrl) {
       errors.push(`providers[${index}].baseUrl is required`);
     }
+    if (
+      provider.imageInput != null
+      && !['data-url', 'metadata-only', 'reject'].includes(String(provider.imageInput))
+    ) {
+      errors.push(`providers[${index}].imageInput must be data-url, metadata-only, or reject`);
+    }
+    if (
+      provider.maxImageParts != null
+      && (!Number.isSafeInteger(Number(provider.maxImageParts)) || Number(provider.maxImageParts) <= 0)
+    ) {
+      errors.push(`providers[${index}].maxImageParts must be a positive integer`);
+    }
+    if (Boolean(provider.embeddingModel) !== Boolean(provider.embeddingsUrl)) {
+      errors.push(`providers[${index}] must declare embeddingModel and embeddingsUrl together`);
+    }
     if (provider.baseUrl) {
       try {
         const parsed = new URL(provider.baseUrl);
@@ -120,6 +294,195 @@ function validateConfig(config) {
         errors.push(`providers[${index}].baseUrl must use http or https`);
       }
     }
+    if (provider.embeddingsUrl) {
+      try {
+        const parsed = new URL(provider.embeddingsUrl);
+        const protocol = parsed.protocol;
+        if (!['http:', 'https:'].includes(protocol)) throw new Error('unsupported protocol');
+        if (parsed.username || parsed.password) {
+          errors.push(`providers[${index}].embeddingsUrl must not contain username or password credentials`);
+        }
+        const credentialQueryKeys = urlCredentialQueryKeys(parsed);
+        if (credentialQueryKeys.length) {
+          errors.push(`providers[${index}].embeddingsUrl must not contain credential query parameters: ${credentialQueryKeys.join(', ')}`);
+        }
+        if (protocol === 'http:' && !isLoopbackHostname(parsed.hostname)) {
+          errors.push(`providers[${index}].embeddingsUrl must use https unless the host is loopback`);
+        }
+      } catch (_) {
+        errors.push(`providers[${index}].embeddingsUrl must use http or https`);
+      }
+    }
+    for (const field of ['embeddingDimensions', 'embeddingTimeoutMs']) {
+      if (
+        provider[field] != null
+        && (!Number.isFinite(Number(provider[field])) || Number(provider[field]) <= 0)
+      ) {
+        errors.push(`providers[${index}].${field} must be a positive number`);
+      }
+    }
+  }
+  const tools = config.tools || {};
+  if (config.tools != null && !isObject(config.tools)) {
+    errors.push('tools must be an object');
+  }
+  if (tools.enabled != null && typeof tools.enabled !== 'boolean') {
+    errors.push('tools.enabled must be boolean');
+  }
+  for (const field of ['maxIterations', 'maxReadBytes', 'maxWriteBytes', 'maxDirectoryEntries']) {
+    if (
+      tools[field] != null
+      && (!Number.isSafeInteger(Number(tools[field])) || Number(tools[field]) <= 0)
+    ) {
+      errors.push(`tools.${field} must be a positive integer`);
+    }
+  }
+  if (tools.workspaceRoots != null && !Array.isArray(tools.workspaceRoots)) {
+    errors.push('tools.workspaceRoots must be an array');
+  }
+  const workspaceRootIds = [];
+  for (const [index, root] of (tools.workspaceRoots || []).entries()) {
+    if (!isObject(root)) {
+      errors.push(`tools.workspaceRoots[${index}] must be an object`);
+      continue;
+    }
+    const rootId = String(root.id || '');
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(rootId)) {
+      errors.push(`tools.workspaceRoots[${index}].id must be a stable lowercase identifier`);
+    }
+    if (!String(root.path || '').trim()) {
+      errors.push(`tools.workspaceRoots[${index}].path is required`);
+    }
+    workspaceRootIds.push(rootId);
+  }
+  if (new Set(workspaceRootIds).size !== workspaceRootIds.length) {
+    errors.push('tools.workspaceRoots ids must be unique');
+  }
+  if (tools.enabled === true && workspaceRootIds.length === 0) {
+    errors.push('tools.enabled requires at least one workspace root');
+  }
+  if (tools.policies != null && !isObject(tools.policies)) {
+    errors.push('tools.policies must be an object');
+  }
+  const validToolScopes = new Set(['terminal', 'telegramPrivate', 'telegramGroup', 'default']);
+  for (const [scope, policy] of Object.entries(tools.policies || {})) {
+    if (!validToolScopes.has(scope)) {
+      errors.push(`tools.policies.${scope} is not a recognized channel scope`);
+      continue;
+    }
+    if (!isObject(policy)) {
+      errors.push(`tools.policies.${scope} must be an object`);
+      continue;
+    }
+    for (const field of Object.keys(policy)) {
+      if (!['read', 'write'].includes(field)) {
+        errors.push(`tools.policies.${scope}.${field} is not a recognized capability`);
+      } else if (!['allow', 'approval', 'deny'].includes(String(policy[field]))) {
+        errors.push(`tools.policies.${scope}.${field} must be allow, approval, or deny`);
+      }
+    }
+  }
+  const memory = config.memory || {};
+  const numericMemoryFields = [
+    'historyTokenBudget',
+    'roundsBudget',
+    'hardTokenCap',
+    'activeSoftTokenWatermark',
+    'activeTargetTokenWatermark',
+    'roundHardLimit',
+    'minimumRawTailRounds',
+    'summaryHistoryLimit',
+    'foldSummaryMaxChars',
+    'contextTokenBudget',
+    'recentWeekCount',
+  ];
+  for (const field of numericMemoryFields) {
+    if (memory[field] != null && (!Number.isFinite(Number(memory[field])) || Number(memory[field]) <= 0)) {
+      errors.push(`memory.${field} must be a positive number`);
+    }
+  }
+  if (
+    memory.activeSoftTokenWatermark != null
+    && memory.activeTargetTokenWatermark != null
+    && Number(memory.activeTargetTokenWatermark) > Number(memory.activeSoftTokenWatermark)
+  ) {
+    errors.push('memory.activeTargetTokenWatermark must not exceed activeSoftTokenWatermark');
+  }
+  if (memory.cards?.policy != null && !['pending', 'relational', 'lossless'].includes(memory.cards.policy)) {
+    errors.push('memory.cards.policy must be pending, relational, or lossless');
+  }
+  if (
+    memory.semantic?.mode != null
+    && !['off', 'shadow', 'cards', 'full'].includes(String(memory.semantic.mode))
+  ) {
+    errors.push('memory.semantic.mode must be off, shadow, cards, or full');
+  }
+  for (const field of ['manifestMaxRecords', 'manifestMaxBytes']) {
+    if (
+      memory.semantic?.[field] != null
+      && (!Number.isFinite(Number(memory.semantic[field])) || Number(memory.semantic[field]) <= 0)
+    ) {
+      errors.push(`memory.semantic.${field} must be a positive number`);
+    }
+  }
+  if (memory.semantic?.embeddings != null && !isObject(memory.semantic.embeddings)) {
+    errors.push('memory.semantic.embeddings must be an object');
+  }
+  const embeddings = isObject(memory.semantic?.embeddings)
+    ? memory.semantic.embeddings
+    : {};
+  if (embeddings.enabled === true && !(config.providers || []).some(
+    (provider) => provider.embeddingModel && provider.embeddingsUrl,
+  )) {
+    errors.push('memory.semantic.embeddings.enabled requires an embedding provider');
+  }
+  for (const field of [
+    'batchSize',
+    'topK',
+    'maxEmbeddingChars',
+    'maxRetrievedChars',
+    'maxBytes',
+  ]) {
+    if (
+      embeddings[field] != null
+      && (!Number.isFinite(Number(embeddings[field])) || Number(embeddings[field]) <= 0)
+    ) {
+      errors.push(`memory.semantic.embeddings.${field} must be a positive number`);
+    }
+  }
+  if (
+    embeddings.minScore != null
+    && (!Number.isFinite(Number(embeddings.minScore))
+      || Number(embeddings.minScore) < -1
+      || Number(embeddings.minScore) > 1)
+  ) {
+    errors.push('memory.semantic.embeddings.minScore must be between -1 and 1');
+  }
+  if (Array.isArray(config.entities)) {
+    const entityIds = config.entities.map((entity) => String(entity?.entityId || '').trim());
+    if (entityIds.some((entityId) => !entityId)) errors.push('entities entries require entityId');
+    if (new Set(entityIds).size !== entityIds.length) errors.push('entities entityId values must be unique');
+  } else if (config.entities != null) {
+    errors.push('entities must be an array when supplied');
+  }
+  for (const field of [
+    'maintenanceIntervalMs',
+    'maintenanceErrorBaseDelayMs',
+    'maintenanceErrorMaxDelayMs',
+  ]) {
+    if (
+      config.runtime?.[field] != null
+      && (!Number.isFinite(Number(config.runtime[field])) || Number(config.runtime[field]) <= 0)
+    ) {
+      errors.push(`runtime.${field} must be a positive number`);
+    }
+  }
+  if (
+    config.runtime?.maintenanceActiveDelayMs != null
+    && (!Number.isFinite(Number(config.runtime.maintenanceActiveDelayMs))
+      || Number(config.runtime.maintenanceActiveDelayMs) < 0)
+  ) {
+    errors.push('runtime.maintenanceActiveDelayMs must be zero or a positive number');
   }
   if (errors.length) throw new Error(`Invalid Tether config:\n- ${errors.join('\n- ')}`);
   return config;
@@ -132,6 +495,7 @@ function resolveWithin(baseDirectory, value) {
 function loadTetherConfig(configPath, {
   privateOverlayPath = process.env.TETHER_PRIVATE_CONFIG || null,
   env = process.env,
+  resolveCredentials = true,
 } = {}) {
   const resolvedConfigPath = path.resolve(configPath);
   const baseDirectory = path.dirname(resolvedConfigPath);
@@ -151,6 +515,18 @@ function loadTetherConfig(configPath, {
       config.telegram.rateLimitStateDir,
     );
   }
+  if (config.telegram?.attachmentDirectory) {
+    config.telegram.attachmentDirectory = resolveWithin(
+      baseDirectory,
+      config.telegram.attachmentDirectory,
+    );
+  }
+  if (Array.isArray(config.tools?.workspaceRoots)) {
+    config.tools.workspaceRoots = config.tools.workspaceRoots.map((root) => ({
+      ...root,
+      path: resolveWithin(baseDirectory, root.path),
+    }));
+  }
   const personaPolicyFile = config.persona?.policyFile
     ? resolveWithin(baseDirectory, config.persona.policyFile)
     : null;
@@ -165,17 +541,19 @@ function loadTetherConfig(configPath, {
       prompt: personaPrompt,
     },
     providers: (config.providers || []).map((provider, index) => {
-      const apiKey = provider.apiKeyEnv ? env[provider.apiKeyEnv] || null : null;
-      if (provider.apiKeyEnv && !apiKey) {
+      const apiKey = resolveCredentials && provider.apiKeyEnv
+        ? env[provider.apiKeyEnv] || null
+        : null;
+      if (resolveCredentials && provider.apiKeyEnv && !apiKey) {
         throw new Error(`Missing required provider credential env: ${provider.apiKeyEnv} (providers[${index}])`);
       }
       const envHeaders = {};
       for (const [headerName, envName] of Object.entries(provider.headerEnv || {})) {
-        const value = env[envName];
-        if (!value) {
+        const value = resolveCredentials ? env[envName] : null;
+        if (resolveCredentials && !value) {
           throw new Error(`Missing required provider header credential env: ${envName} (providers[${index}])`);
         }
-        envHeaders[headerName] = value;
+        if (value) envHeaders[headerName] = value;
       }
       return { ...provider, headers: { ...(provider.headers || {}), ...envHeaders }, apiKey };
     }),

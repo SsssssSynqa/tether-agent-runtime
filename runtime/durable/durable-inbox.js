@@ -205,8 +205,8 @@ class DurableInbox {
     const id = Number(updateId);
     if (!Number.isFinite(id)) throw new Error('orphan archive 缺少合法 updateId');
     const prior = this.states.get(id);
-    if (!prior || ['done', 'dead-letter'].includes(prior.state)) {
-      throw new Error(`update ${id} 不是可归档的非终态 orphan`);
+    if (!prior || prior.state === 'done') {
+      throw new Error(`update ${id} 不是可归档的 orphan`);
     }
     if (prior.update || this.updates.has(id)) {
       throw new Error(`update ${id} 仍有原文，不能冒充不可恢复 orphan 归档`);
@@ -336,12 +336,75 @@ class DurableInbox {
     return this.states.get(Number(updateId)) || null;
   }
 
+  inspect(updateId) {
+    const entry = this._withUpdate(this.states.get(Number(updateId)) || null);
+    return entry ? structuredClone(entry) : null;
+  }
+
+  inventory({ states = null, previewChars = 200 } = {}) {
+    const wanted = states == null
+      ? null
+      : new Set((Array.isArray(states) ? states : [states]).map(String));
+    return [...this.states.values()]
+      .map((entry) => this._withUpdate(entry))
+      .filter((entry) => !wanted || wanted.has(String(entry.state)))
+      .sort((left, right) => Number(left.updateId) - Number(right.updateId))
+      .map((entry) => {
+        const message = entry.update?.message || entry.update?.edited_message;
+        const text = String(message?.text || message?.caption || '');
+        return {
+          updateId: Number(entry.updateId),
+          state: String(entry.state),
+          attempts: Number(entry.attempts || 0),
+          nextRetryAt: entry.nextRetryAt ?? null,
+          chatId: message?.chat?.id == null ? null : String(message.chat.id),
+          telegramMessageId: message?.message_id ?? null,
+          hasOriginal: Boolean(entry.update),
+          recoverable: Boolean(entry.update) && [
+            'dead-letter',
+            'operator-paused',
+            'failed',
+            'paused',
+            'received',
+            'processing',
+            'group-queued',
+          ].includes(String(entry.state)),
+          error: entry.error == null ? null : String(entry.error),
+          textPreview: text.slice(0, Math.max(0, Number(previewChars) || 0)),
+        };
+      });
+  }
+
+  status() {
+    const counts = {};
+    let unrecoverableOrphans = 0;
+    for (const entry of this.states.values()) {
+      const state = String(entry.state || 'unknown');
+      counts[state] = Number(counts[state] || 0) + 1;
+      if (
+        state !== 'done'
+        && !entry.update
+        && !this.updates.has(Number(entry.updateId))
+      ) unrecoverableOrphans += 1;
+    }
+    return {
+      counts,
+      total: this.states.size,
+      inflight: this.inflight.size,
+      unrecoverableOrphans,
+      deadLetters: Number(counts['dead-letter'] || 0),
+      operatorPaused: Number(counts['operator-paused'] || 0),
+    };
+  }
+
   chatIdForEntry(entry) {
-    return String(entry?.update?.message?.chat?.id ?? `update:${entry?.updateId}`);
+    const message = entry?.update?.message || entry?.update?.edited_message;
+    return String(message?.chat?.id ?? `update:${entry?.updateId}`);
   }
 
   chatIdForUpdate(update) {
-    return String(update?.message?.chat?.id ?? `update:${update?.update_id}`);
+    const message = update?.message || update?.edited_message;
+    return String(message?.chat?.id ?? `update:${update?.update_id}`);
   }
 
   dueEntryRunsInOrder(now = Date.now()) {
@@ -376,9 +439,10 @@ class DurableInbox {
     return this.dueEntryRunsInOrder(now).map((entries) => entries[0]);
   }
 
-  hasEarlierBlockedEntry(update) {
+  hasEarlierBlockedEntry(update, { ignoreInflight = false } = {}) {
     const updateId = Number(update?.update_id);
-    const chatId = String(update?.message?.chat?.id ?? `update:${updateId}`);
+    const message = update?.message || update?.edited_message;
+    const chatId = String(message?.chat?.id ?? `update:${updateId}`);
     // operator-paused 必须排除，与 dueEntryRunsInOrder 的屏障判定保持同一语义：
     // 它的 nextRetryAt 是 null 永不到期，若算作屏障，同 chat 之后的每条实时消息
     // 都会被这里判「前方有未终结 update」而降级去 retry 兜底路径——消息不丢，
@@ -387,6 +451,7 @@ class DurableInbox {
       Number(entry.updateId) < updateId
       && this.chatIdForEntry(entry) === chatId
       && !['done', 'dead-letter', 'operator-paused'].includes(entry.state)
+      && (!ignoreInflight || !this.inflight.has(Number(entry.updateId)))
     ));
   }
 

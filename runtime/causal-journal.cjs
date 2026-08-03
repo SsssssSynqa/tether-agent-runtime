@@ -82,7 +82,7 @@ class CausalJournal {
       throw new Error('Causal input requires sessionId, channelId, and messageId');
     }
     const causalId = `causal:${sha256(`v1\0${sessionId}\0${channelId}\0${messageId}`)}`;
-    const input = {
+    const inputEnvelope = {
       sessionId: String(sessionId),
       channelId: String(channelId),
       messageId: String(messageId),
@@ -90,10 +90,31 @@ class CausalJournal {
       textSha256: sha256(text ?? ''),
       metadataSha256: sha256(canonicalJson(metadata || {})),
     };
-    const inputFingerprint = sha256(canonicalJson(input));
+    const receivedAt = this.clock();
+    const input = {
+      ...inputEnvelope,
+      // Keep the durable ingress payload beside its hashes. If a process dies
+      // after inference starts, the state machine still refuses ambiguous
+      // reinference, but the original message itself is never lost.
+      text: String(text ?? ''),
+      metadata: structuredClone(metadata || {}),
+      receivedAt,
+    };
+    const inputFingerprint = sha256(canonicalJson(inputEnvelope));
     const existing = this.latest.get(causalId);
     if (existing) {
-      if (existing.inputFingerprint !== inputFingerprint || canonicalJson(existing.input) !== canonicalJson(input)) {
+      const existingEnvelope = {
+        sessionId: String(existing.input?.sessionId || ''),
+        channelId: String(existing.input?.channelId || ''),
+        messageId: String(existing.input?.messageId || ''),
+        role: String(existing.input?.role || ''),
+        textSha256: String(existing.input?.textSha256 || ''),
+        metadataSha256: String(existing.input?.metadataSha256 || ''),
+      };
+      if (
+        existing.inputFingerprint !== inputFingerprint
+        || canonicalJson(existingEnvelope) !== canonicalJson(inputEnvelope)
+      ) {
         throw new CausalStateError(
           'Duplicate causal message does not match the committed input envelope',
           'TETHER_CAUSAL_MISMATCH',
@@ -134,7 +155,24 @@ class CausalJournal {
   }
 
   markInferenceStarted(causalId) {
-    return this._transition(causalId, ['received'], 'inference-started');
+    return this._transition(causalId, ['received', 'inference-rejected'], 'inference-started');
+  }
+
+  markInferenceRejected(causalId, {
+    reason = 'response-contract-invalid',
+    text = '',
+    providerId = null,
+  } = {}) {
+    const rejectedText = String(text || '');
+    return this._transition(causalId, ['inference-started'], 'inference-rejected', {
+      rejectedOutput: {
+        reason: String(reason || 'response-contract-invalid').slice(0, 500),
+        text: rejectedText.slice(0, 16_000),
+        textSha256: sha256(rejectedText),
+        providerId: providerId ? String(providerId) : null,
+        rejectedAt: this.clock(),
+      },
+    });
   }
 
   commitOutput(causalId, { text, providerId = null } = {}) {
@@ -144,6 +182,7 @@ class CausalJournal {
       text: outputText,
       textSha256: sha256(outputText),
       providerId: providerId ? String(providerId) : null,
+      committedAt: this.clock(),
     };
     return this._transition(causalId, ['inference-started'], 'committed', { output });
   }

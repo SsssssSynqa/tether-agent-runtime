@@ -16,6 +16,9 @@ function providerCapacityCategory(error) {
 }
 
 function classifyDurableError(error) {
+  if (['TETHER_INFERENCE_AMBIGUOUS', 'TETHER_DELIVERY_AMBIGUOUS'].includes(error?.code)) {
+    return { action: 'operator-pause', category: 'causal_ambiguity' };
+  }
   if (error?.manualRetryOnly) return { action: 'operator-pause', category: 'manual_retry_only' };
   if (error?.circuitOpen || error?.pauseRetry) {
     return {

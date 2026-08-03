@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,7 +19,7 @@ from typing import Any, Iterable
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _FOLD_HEADER_RE = re.compile(
-    r"^##\s+(\d{2}):(\d{2}):(\d{2})(?:（北京时间）)?\s*·\s*折叠\s+(\d+)\s*轮\s*$",
+    r"^##\s+(\d{2}):(\d{2}):(\d{2})(?:（[^）\n]+）)?\s*·\s*折叠\s+(\d+)\s*轮\s*$",
     re.MULTILINE,
 )
 
@@ -80,6 +81,59 @@ def latest_by(records: Iterable[dict[str, Any]], id_field: str) -> dict[str, dic
     return result
 
 
+def vector_records(path: Path) -> dict[str, dict[str, Any]]:
+    """Load the private vector journal while returning only metadata later.
+
+    The Console still validates the vector payload so a corrupt journal cannot
+    masquerade as healthy, but the numeric vector itself never crosses the API
+    boundary.
+    """
+
+    latest: dict[str, dict[str, Any]] = {}
+    for line_number, record in enumerate(strict_jsonl(path), start=1):
+        record_id = record.get("recordId")
+        vector = record.get("vector")
+        dimensions = record.get("dimensions")
+        if not isinstance(record_id, str) or not record_id:
+            raise StoreCorrupt(path.name, line_number, "vector record lacks recordId")
+        if (
+            not isinstance(vector, list)
+            or not vector
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                for value in vector
+            )
+        ):
+            raise StoreCorrupt(path.name, line_number, "invalid vector payload")
+        if not isinstance(dimensions, int) or isinstance(dimensions, bool) or dimensions != len(vector):
+            raise StoreCorrupt(path.name, line_number, "vector dimensions do not match payload")
+        latest[record_id] = record
+    return latest
+
+
+def embedding_state(semantic_dir: Path, stored_vectors: int) -> dict[str, Any]:
+    raw = strict_json(semantic_dir / "embedding-state.json", {})
+    if not isinstance(raw, dict):
+        raise StoreCorrupt("embedding-state.json", None, "root is not an object")
+
+    def count(name: str, fallback: int = 0) -> int:
+        value = raw.get(name, fallback)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise StoreCorrupt("embedding-state.json", None, f"{name} is not a non-negative integer")
+        return value
+
+    return {
+        "enabled": raw.get("enabled") is True,
+        "total_documents": count("totalDocuments"),
+        "indexed_documents": count("indexedDocuments"),
+        "missing_documents": count("missingDocuments"),
+        "stored_vectors": count("storedVectors", stored_vectors),
+        "updated_at": raw.get("updatedAt") if isinstance(raw.get("updatedAt"), str) else None,
+    }
+
+
 def record_time(record: dict[str, Any]) -> str | None:
     for key in ("committedAt", "updatedAt", "createdAt", "compiledAt", "at"):
         value = record.get(key)
@@ -106,11 +160,13 @@ def card_markdown_path(card_dir: Path, layer: str, period_key: str) -> Path | No
         return None
     if layer == "day":
         names = [
+            card_dir / "day-cards" / period_key[:4] / f"{period_key}.md",
             card_dir / "day" / period_key[:4] / f"{period_key}.md",
             card_dir / "日卡" / period_key[:4] / f"{period_key}.md",
         ]
     else:
-        names = list((card_dir / "week" / period_key[:4]).glob(f"{period_key}*.md"))
+        names = list((card_dir / "week-cards" / period_key[:4]).glob(f"{period_key}*.md"))
+        names += list((card_dir / "week" / period_key[:4]).glob(f"{period_key}*.md"))
         names += list((card_dir / "周卡" / period_key[:4]).glob(f"{period_key}*.md"))
     return next((path for path in names if path.is_file()), None)
 
@@ -338,6 +394,7 @@ def semantic_state(semantic_dir: Path) -> dict[str, Any]:
         raise StoreCorrupt("manifest.json", None, "root is not an object")
     entities_raw = strict_json(semantic_dir / "entities.json", {"entities": []})
     entities = entities_raw.get("entities", []) if isinstance(entities_raw, dict) else entities_raw
+    vectors = vector_records(semantic_dir / "embeddings.jsonl")
     state = {
         "manifest": manifest,
         "claims": latest_by(strict_jsonl(semantic_dir / "claims.jsonl"), "claimId"),
@@ -345,6 +402,9 @@ def semantic_state(semantic_dir: Path) -> dict[str, Any]:
         "projections": latest_by(strict_jsonl(semantic_dir / "projections.jsonl"), "projectionId"),
         "reviews": latest_by(strict_jsonl(semantic_dir / "packet-reviews.jsonl"), "packetId"),
         "packets": latest_by(strict_jsonl(semantic_dir / "packets.jsonl"), "packetId"),
+        "queue": latest_by(strict_jsonl(semantic_dir / "inbox.jsonl"), "packetId"),
+        "vectors": vectors,
+        "embedding": embedding_state(semantic_dir, len(vectors)),
         "patches": strict_jsonl(semantic_dir / "patches.jsonl"),
         "entities": {
             str(item.get("entityId")): item
@@ -361,6 +421,48 @@ def semantic_public(state: dict[str, Any]) -> dict[str, Any]:
     events = sorted(state["events"].values(), key=lambda item: record_time(item) or item.get("occurredFrom") or "", reverse=True)
     projections = sorted(state["projections"].values(), key=lambda item: record_time(item) or "", reverse=True)
     reviews = sorted(state["reviews"].values(), key=lambda item: record_time(item) or "", reverse=True)
+    queue = sorted(
+        (
+            {
+                "packetId": item.get("packetId"),
+                "status": item.get("status") or "unknown",
+                "queueClass": item.get("queueClass") or "live",
+                "attempts": int(item.get("attempts") or 0),
+                "reviewAttempts": int(item.get("reviewAttempts") or 0),
+                "nextRetryAt": item.get("nextRetryAt"),
+                "updatedAt": item.get("updatedAt"),
+            }
+            for item in state["queue"].values()
+        ),
+        key=lambda item: record_time(item) or "",
+        reverse=True,
+    )
+    queue_counts = {
+        status: sum(item["status"] == status for item in queue)
+        for status in (
+            "pending",
+            "retry",
+            "partial_review_pending",
+            "needs_human_review",
+            "completed",
+        )
+    }
+    vectors = sorted(
+        (
+            {
+                "recordId": item.get("recordId"),
+                "kind": item.get("kind") or "memory",
+                "title": item.get("title"),
+                "dimensions": item.get("dimensions"),
+                "providerId": item.get("providerId"),
+                "model": item.get("model"),
+                "updatedAt": item.get("updatedAt"),
+            }
+            for item in state["vectors"].values()
+        ),
+        key=lambda item: record_time(item) or "",
+        reverse=True,
+    )
     return {
         "mode": state["manifest"].get("mode") or "off",
         "schema_version": state["manifest"].get("schemaVersion"),
@@ -373,11 +475,27 @@ def semantic_public(state: dict[str, Any]) -> dict[str, Any]:
             "supported_claims": sum(item.get("verificationStatus") == "supported" for item in claims),
             "accepted_events": sum(item.get("status") == "accepted" for item in events),
             "accepted_projections": sum(item.get("status") == "accepted" and not item.get("stale") for item in projections),
+            "queue_total": len(queue),
+            "queue_pending": queue_counts["pending"],
+            "queue_retry": queue_counts["retry"],
+            "queue_partial_review": queue_counts["partial_review_pending"],
+            "queue_human_review": queue_counts["needs_human_review"],
+            "queue_completed": queue_counts["completed"],
+            "queue_actionable": (
+                queue_counts["pending"]
+                + queue_counts["retry"]
+                + queue_counts["partial_review_pending"]
+            ),
+            "vectors": len(vectors),
+            "stored_vectors": state["embedding"]["stored_vectors"],
         },
         "claims": claims,
         "events": events,
         "projections": projections,
         "reviews": reviews,
+        "queue": queue,
+        "vectors": vectors,
+        "embedding": state["embedding"],
     }
 
 

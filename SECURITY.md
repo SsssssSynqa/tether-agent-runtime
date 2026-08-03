@@ -41,13 +41,18 @@ The Selfsame Protocol protects continuity; it is not an authentication or encryp
 - Apply the same HTTPS-or-loopback boundary to a custom Telegram API base; reject URL credentials, query parameters, and fragments.
 - Keep authentication out of ordinary provider `headers`; use `apiKeyEnv` or `headerEnv` so credential values come from the process environment.
 - Keep runtime data outside the source checkout with least-privilege filesystem permissions.
+- Keep every tool workspace physically disjoint from `storage.root`; Tether refuses either containment direction, but operators should still verify mount and symlink layout.
+- Review tool policies per channel. Leave group tools denied unless there is a specific tested need, and require approval for untrusted writes.
 - Bind Console and administrative endpoints to loopback unless a separately authenticated reverse proxy is deliberately configured.
 - Treat raw transcripts, corrections, cards, vectors, logs, and backups as sensitive data.
+- Treat built-in backup directories as unencrypted plaintext and protect external workspaces/attachment roots with a separate backup policy.
 - Verify provider and channel retention policies before sending real content.
 - Rotate a secret immediately if it appears in a terminal transcript, log, issue, or commit.
 - Review capability policies independently from context continuity.
 - Run `scripts/check-public-snapshot` before publishing a branch or release archive.
 - Back up raw authority and test restoration without creating a replacement persona session.
+- Run host service managers against `tether-supervisor`, not a second child runtime, and keep the host restart policy bounded so crash-loop exhaustion remains visible.
+- Stop both supervisor and runtime before migration, backup, restore, memory rebuild/backfill, or dead-letter mutation; never delete locks to bypass the offline boundary.
 
 ## Out of scope for public testing
 

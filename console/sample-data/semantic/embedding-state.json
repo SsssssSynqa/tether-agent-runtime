@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "totalDocuments": 3,
+  "indexedDocuments": 2,
+  "missingDocuments": 1,
+  "storedVectors": 2,
+  "updatedAt": "2026-01-05T00:08:00Z"
+}

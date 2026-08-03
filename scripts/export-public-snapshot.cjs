@@ -53,8 +53,11 @@ function main() {
     if (error.code !== 'ENOENT') throw new Error(`Cannot validate prior public export lock: ${error.message}`);
   }
   const staleManaged = findStaleManagedPaths(priorLock?.files, seenTargets);
-  if (staleManaged.length) {
-    throw new Error(`Prior managed export paths are no longer allowlisted; remove them deliberately before export: ${staleManaged.join(', ')}`);
+  const staleManagedStillPresent = staleManaged.filter((relativePath) => (
+    fs.existsSync(resolveInside(target, relativePath))
+  ));
+  if (staleManagedStillPresent.length) {
+    throw new Error(`Prior managed export paths are no longer allowlisted; remove them deliberately before export: ${staleManagedStillPresent.join(', ')}`);
   }
   const lockFiles = [];
   for (const entry of entries) {

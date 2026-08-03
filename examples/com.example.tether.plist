@@ -8,7 +8,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/absolute/path/to/node</string>
-    <string>/absolute/path/to/tether-agent-runtime/bin/tether.cjs</string>
+    <string>/absolute/path/to/tether-agent-runtime/bin/tether-supervisor.cjs</string>
     <string>/absolute/path/to/private/config.json</string>
   </array>
 
@@ -17,8 +17,10 @@
 
   <key>RunAtLoad</key>
   <true/>
+  <!-- The Tether supervisor already owns bounded child restart. KeepAlive=false
+       lets crash-loop exhaustion remain a visible stopped state. -->
   <key>KeepAlive</key>
-  <true/>
+  <false/>
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>ProcessType</key>

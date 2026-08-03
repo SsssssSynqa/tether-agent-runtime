@@ -32,10 +32,7 @@
     "root": "../private-tether-data"
   },
   "runtime": {
-    "allowInitialSessionCreate": true,
-    "rawTailMessages": 40,
-    "summaryLimit": 20,
-    "cardLimit": 20
+    "allowInitialSessionCreate": true
   },
   "telegram": {
     "enabled": false,

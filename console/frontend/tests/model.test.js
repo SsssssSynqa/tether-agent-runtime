@@ -19,6 +19,8 @@ test('semantic record identity follows each journal contract', () => {
   assert.equal(recordIdentity({ claimId: 'claim:one', content: 'text' }, 'claims'), 'claim:one')
   assert.equal(recordIdentity({ eventId: 'event:one', title: 'Title' }, 'events'), 'event:one')
   assert.equal(recordIdentity({ packetId: 'packet:one' }, 'reviews'), 'packet:one')
+  assert.equal(recordIdentity({ packetId: 'packet:queued', status: 'retry' }, 'queue'), 'packet:queued')
+  assert.equal(recordIdentity({ recordId: 'claim:one', title: 'Claim vector' }, 'vectors'), 'claim:one')
 })
 
 test('context blocks never infer content when the manifest is empty', () => {
@@ -30,15 +32,18 @@ test('integrity changes the overview tone', () => {
   assert.equal(statusTone({ integrity: { healthy: true }, configured: {} }), 'healthy')
   assert.equal(statusTone({ integrity: { healthy: false }, configured: {} }), 'attention')
   assert.equal(statusTone({ integrity: { healthy: true }, configured: { cards: { exists: false } } }), 'attention')
+  assert.equal(statusTone({ integrity: { healthy: true }, configured: {}, counts: { queue_retry: 1 } }), 'attention')
+  assert.equal(statusTone({ integrity: { healthy: true }, configured: {}, embedding: { enabled: true, missing_documents: 1 } }), 'attention')
+  assert.equal(statusTone({ integrity: { healthy: true }, configured: {}, embedding: { enabled: false, missing_documents: 3 } }), 'healthy')
 })
 
 test('HTML rendering escapes memory and error content', () => {
   assert.equal(escapeHtml('<script>"x"</script>'), '&lt;script&gt;&quot;x&quot;&lt;/script&gt;')
   assert.doesNotMatch(errorMarkup(new Error('<img src=x>')), /<img src=x>/)
   const data = {
-    status: { counts: {}, integrity: { healthy: true }, configured: {} },
+    status: { counts: {}, integrity: { healthy: true }, configured: {}, embedding: { enabled: false, stored_vectors: 0 } },
     cards: { items: [{ id: 'day:one', layer: 'day', period_key: '2026-01-01', title: '<script>x</script>', content: '<b>memory</b>' }] },
-    semantic: { counts: {}, claims: [], events: [], projections: [], reviews: [] },
+    semantic: { counts: {}, claims: [], events: [], projections: [], reviews: [], queue: [], vectors: [] },
     context: { blocks: [] },
     sources: { count: 0, items: [] },
     integrity: { healthy: true, issue_count: 0, issues: {} },

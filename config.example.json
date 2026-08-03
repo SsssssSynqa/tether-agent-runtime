@@ -21,21 +21,114 @@
     "preservedEntityNames": []
   },
   "storage": {
-    "root": "./data"
+    "root": "../private-tether-data"
   },
   "runtime": {
     "allowInitialSessionCreate": true,
-    "rawTailMessages": 40,
-    "summaryLimit": 20,
-    "cardLimit": 20
+    "maintenanceIntervalMs": 30000,
+    "maintenanceActiveDelayMs": 250,
+    "maintenanceErrorBaseDelayMs": 30000,
+    "maintenanceErrorMaxDelayMs": 3600000
+  },
+  "supervision": {
+    "heartbeatIntervalMs": 5000,
+    "monitorIntervalMs": 5000,
+    "heartbeatStaleMs": 30000,
+    "readyTimeoutMs": 60000,
+    "restartBaseMs": 1000,
+    "restartMaxMs": 60000,
+    "restartWindowMs": 300000,
+    "maxRestartsPerWindow": 8,
+    "shutdownGraceMs": 15000
+  },
+  "tools": {
+    "enabled": true,
+    "maxIterations": 5,
+    "maxReadBytes": 524288,
+    "maxWriteBytes": 1048576,
+    "maxDirectoryEntries": 200,
+    "workspaceRoots": [
+      { "id": "workspace", "path": "../private-tether-workspace" }
+    ],
+    "policies": {
+      "terminal": { "read": "allow", "write": "allow" },
+      "telegramPrivate": { "read": "allow", "write": "approval" },
+      "telegramGroup": { "read": "deny", "write": "deny" },
+      "default": { "read": "deny", "write": "deny" }
+    }
+  },
+  "memory": {
+    "activeSoftTokenWatermark": 36000,
+    "activeTargetTokenWatermark": 24000,
+    "roundHardLimit": 120,
+    "minimumRawTailRounds": 8,
+    "summaryHistoryLimit": 64,
+    "contextTokenBudget": 180000,
+    "recentWeekCount": 4,
+    "time": {
+      "timezoneOffsetMinutes": 0,
+      "cutoffHour": 6,
+      "forceHour": 12,
+      "quietMinutes": 45,
+      "displayLabel": "configured local time"
+    },
+    "cards": {
+      "enabled": true,
+      "policy": "lossless"
+    },
+    "semantic": {
+      "mode": "cards",
+      "manifestMaxRecords": 50,
+      "manifestMaxBytes": 8388608,
+      "embeddings": {
+        "enabled": false,
+        "batchSize": 32,
+        "topK": 6,
+        "minScore": 0.25,
+        "maxEmbeddingChars": 12000,
+        "maxRetrievedChars": 2000,
+        "maxBytes": 67108864
+      }
+    }
   },
   "telegram": {
     "enabled": false,
     "tokenEnv": "TELEGRAM_BOT_TOKEN",
-    "allowedGroups": {},
+    "allowedGroups": {
+      "GROUP_CHAT_ID": {
+        "enabled": false,
+        "mode": "mention",
+        "mentionPatterns": ["Your Agent"],
+        "ownerAlways": true,
+        "ignoreBotMessages": false
+      }
+    },
     "noReplyGroupIds": [],
     "rateLimitedGroupIds": [],
-    "rateLimitStateDir": "./data/telegram-rate-limit"
+    "rateLimitStateDir": "../private-tether-data/telegram-rate-limit",
+    "pollTimeoutSeconds": 30,
+    "pollRetryDelayMs": 1000,
+    "retryIntervalMs": 1000,
+    "maxAttempts": 6,
+    "retryBaseMs": 2000,
+    "retryMaxMs": 300000,
+    "durableInboxMaxBytes": 20971520,
+    "attachmentDirectory": "../private-tether-data/telegram-attachments",
+    "maxImageBytes": 10485760,
+    "maxFileBytes": 20971520,
+    "maxFilePreviewChars": 12000,
+    "maxQuotedChars": 1000,
+    "groupMaxReplies": 6,
+    "groupAllowedReactions": [],
+    "groupRepairAttempts": 1,
+    "groupMaxPendingMessages": 100,
+    "groupBatchTiming": {
+      "singleMessageMs": 300,
+      "sameSenderIdleMs": 1200,
+      "sameSenderMaxMs": 2500,
+      "multiSenderIdleMs": 1600,
+      "multiSenderMaxMs": 4000
+    }
   },
   "providers": [
     {
@@ -44,7 +137,16 @@
       "adapter": "openai-compatible",
       "baseUrl": "https://api.example.invalid/v1/chat/completions",
       "apiKeyEnv": "PRIMARY_API_KEY",
-      "model": "your-model-id"
+      "model": "your-model-id",
+      "foldModel": "your-fast-model-id",
+      "memoryModel": "your-fast-model-id",
+      "semanticExtractorModel": "your-fast-model-id",
+      "semanticVerifierModel": "your-model-id",
+      "semanticHighRiskModel": "your-model-id",
+      "imageInput": "data-url",
+      "maxImageParts": 4,
+      "embeddingsUrl": "https://api.example.invalid/v1/embeddings",
+      "embeddingModel": "your-embedding-model-id"
     }
   ]
 }
