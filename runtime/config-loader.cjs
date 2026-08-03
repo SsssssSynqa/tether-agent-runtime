@@ -74,6 +74,26 @@ function validateConfig(config) {
   if (config.telegram?.allowedGroups != null && !isObject(config.telegram.allowedGroups)) {
     errors.push('telegram.allowedGroups must be an object');
   }
+  for (const [chatId, policy] of Object.entries(config.telegram?.allowedGroups || {})) {
+    if (!chatId || !isObject(policy)) {
+      errors.push(`telegram.allowedGroups.${chatId || '<empty>'} must be an object`);
+      continue;
+    }
+    if (policy.mode != null && !['all', 'mention'].includes(String(policy.mode))) {
+      errors.push(`telegram.allowedGroups.${chatId}.mode must be all or mention`);
+    }
+    if (policy.mentionPatterns != null && (
+      !Array.isArray(policy.mentionPatterns)
+      || policy.mentionPatterns.some((value) => !String(value || '').trim())
+    )) {
+      errors.push(`telegram.allowedGroups.${chatId}.mentionPatterns must be non-empty strings`);
+    }
+    for (const field of ['enabled', 'ownerAlways', 'ignoreBotMessages']) {
+      if (policy[field] != null && typeof policy[field] !== 'boolean') {
+        errors.push(`telegram.allowedGroups.${chatId}.${field} must be boolean`);
+      }
+    }
+  }
   for (const field of ['noReplyGroupIds', 'rateLimitedGroupIds']) {
     if (config.telegram?.[field] != null && !Array.isArray(config.telegram[field])) {
       errors.push(`telegram.${field} must be an array`);
@@ -86,12 +106,46 @@ function validateConfig(config) {
     'retryBaseMs',
     'retryMaxMs',
     'durableInboxMaxBytes',
+    'maxImageBytes',
+    'maxFileBytes',
+    'maxFilePreviewChars',
+    'maxQuotedChars',
+    'groupMaxReplies',
+    'groupMaxPendingMessages',
   ]) {
     if (
       config.telegram?.[field] != null
       && (!Number.isFinite(Number(config.telegram[field])) || Number(config.telegram[field]) <= 0)
     ) {
       errors.push(`telegram.${field} must be a positive number`);
+    }
+  }
+  if (
+    config.telegram?.groupRepairAttempts != null
+    && (!Number.isSafeInteger(Number(config.telegram.groupRepairAttempts))
+      || Number(config.telegram.groupRepairAttempts) < 0)
+  ) {
+    errors.push('telegram.groupRepairAttempts must be zero or a positive integer');
+  }
+  if (
+    config.telegram?.groupAllowedReactions != null
+    && (!Array.isArray(config.telegram.groupAllowedReactions)
+      || config.telegram.groupAllowedReactions.some((value) => !String(value || '').trim()))
+  ) {
+    errors.push('telegram.groupAllowedReactions must be non-empty strings');
+  }
+  if (config.telegram?.groupBatchTiming != null && !isObject(config.telegram.groupBatchTiming)) {
+    errors.push('telegram.groupBatchTiming must be an object');
+  }
+  for (const [field, value] of Object.entries(config.telegram?.groupBatchTiming || {})) {
+    if (![
+      'singleMessageMs',
+      'sameSenderIdleMs',
+      'sameSenderMaxMs',
+      'multiSenderIdleMs',
+      'multiSenderMaxMs',
+    ].includes(field) || !Number.isFinite(Number(value)) || Number(value) < 0) {
+      errors.push(`telegram.groupBatchTiming.${field} must be zero or a positive number`);
     }
   }
   if (
@@ -157,6 +211,18 @@ function validateConfig(config) {
     }
     if (provider.adapter === 'openai-compatible' && !provider.baseUrl) {
       errors.push(`providers[${index}].baseUrl is required`);
+    }
+    if (
+      provider.imageInput != null
+      && !['data-url', 'metadata-only', 'reject'].includes(String(provider.imageInput))
+    ) {
+      errors.push(`providers[${index}].imageInput must be data-url, metadata-only, or reject`);
+    }
+    if (
+      provider.maxImageParts != null
+      && (!Number.isSafeInteger(Number(provider.maxImageParts)) || Number(provider.maxImageParts) <= 0)
+    ) {
+      errors.push(`providers[${index}].maxImageParts must be a positive integer`);
     }
     if (Boolean(provider.embeddingModel) !== Boolean(provider.embeddingsUrl)) {
       errors.push(`providers[${index}] must declare embeddingModel and embeddingsUrl together`);
@@ -338,6 +404,12 @@ function loadTetherConfig(configPath, {
     config.telegram.rateLimitStateDir = resolveWithin(
       baseDirectory,
       config.telegram.rateLimitStateDir,
+    );
+  }
+  if (config.telegram?.attachmentDirectory) {
+    config.telegram.attachmentDirectory = resolveWithin(
+      baseDirectory,
+      config.telegram.attachmentDirectory,
     );
   }
   const personaPolicyFile = config.persona?.policyFile

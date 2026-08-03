@@ -378,7 +378,7 @@ class DurableInbox {
     return this.dueEntryRunsInOrder(now).map((entries) => entries[0]);
   }
 
-  hasEarlierBlockedEntry(update) {
+  hasEarlierBlockedEntry(update, { ignoreInflight = false } = {}) {
     const updateId = Number(update?.update_id);
     const message = update?.message || update?.edited_message;
     const chatId = String(message?.chat?.id ?? `update:${updateId}`);
@@ -390,6 +390,7 @@ class DurableInbox {
       Number(entry.updateId) < updateId
       && this.chatIdForEntry(entry) === chatId
       && !['done', 'dead-letter', 'operator-paused'].includes(entry.state)
+      && (!ignoreInflight || !this.inflight.has(Number(entry.updateId)))
     ));
   }
 

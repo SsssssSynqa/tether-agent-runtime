@@ -20,6 +20,9 @@ const {
   createTelegramApi,
   createTelegramChannel,
 } = require('../runtime/channels/telegram.cjs');
+const {
+  createTelegramGroupCoordinator,
+} = require('../runtime/channels/telegram-group.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
 
 function durableModule(name) {
@@ -36,6 +39,7 @@ let memoryRuntime = null;
 let maintenanceSupervisor = null;
 let telegramChannel = null;
 let telegramDispatcher = null;
+let telegramGroupCoordinator = null;
 let terminalInterface = null;
 let resourcesReleased = false;
 
@@ -62,12 +66,14 @@ function releaseResources() {
   try { maintenanceSupervisor?.stop(); } catch (_) { /* shutdown is best effort */ }
   try { telegramChannel?.stop(); } catch (_) { /* shutdown is best effort */ }
   try { telegramDispatcher?.stop(); } catch (_) { /* shutdown is best effort */ }
+  try { telegramGroupCoordinator?.stop(); } catch (_) { /* shutdown is best effort */ }
   try { terminalInterface?.close(); } catch (_) { /* shutdown is best effort */ }
   try { memoryRuntime?.close(); } catch (_) { /* shutdown is best effort */ }
   try { instanceLock?.release(); } catch (_) { /* process shutdown is best effort */ }
   maintenanceSupervisor = null;
   telegramChannel = null;
   telegramDispatcher = null;
+  telegramGroupCoordinator = null;
   terminalInterface = null;
   memoryRuntime = null;
   instanceLock = null;
@@ -97,6 +103,8 @@ async function main() {
       semanticExtractorModel: provider.semanticExtractorModel,
       semanticVerifierModel: provider.semanticVerifierModel,
       semanticHighRiskModel: provider.semanticHighRiskModel,
+      imageInput: provider.imageInput,
+      maxImageParts: provider.maxImageParts,
       embeddingsUrl: provider.embeddingsUrl,
       embeddingModel: provider.embeddingModel,
       embeddingDimensions: provider.embeddingDimensions,
@@ -156,18 +164,28 @@ async function main() {
     const token = process.env[config.telegram.tokenEnv || 'TELEGRAM_BOT_TOKEN'];
     if (!token) throw new Error(`Missing Telegram token env: ${config.telegram.tokenEnv || 'TELEGRAM_BOT_TOKEN'}`);
     const telegram = createTelegramChannel({
-      api: createTelegramApi({ token }),
+      api: createTelegramApi({ token, apiBase: config.telegram.apiBase }),
       ownerIds: config.owner.telegramUserIds || [],
-      allowedGroupIds: Object.keys(config.telegram.allowedGroups || {}),
+      allowedGroups: config.telegram.allowedGroups || {},
       noReplyGroupIds: config.telegram.noReplyGroupIds || [],
       rateLimitedGroupIds: config.telegram.rateLimitedGroupIds || [],
       rateLimitStateDir: config.telegram.rateLimitStateDir || null,
+      attachmentDirectory: config.telegram.attachmentDirectory
+        || path.join(config.storage.root, 'telegram-attachments'),
+      maxImageBytes: config.telegram.maxImageBytes,
+      maxFileBytes: config.telegram.maxFileBytes,
+      maxFilePreviewChars: config.telegram.maxFilePreviewChars,
+      maxQuotedChars: config.telegram.maxQuotedChars,
+      groupMaxReplies: config.telegram.groupMaxReplies,
+      groupAllowedReactions: config.telegram.groupAllowedReactions,
+      groupRepairAttempts: config.telegram.groupRepairAttempts,
       offsetStore: createFileOffsetStore(path.join(config.storage.root, 'telegram-offset.txt')),
       pollTimeoutSeconds: config.telegram.pollTimeoutSeconds,
       pollRetryDelayMs: config.telegram.pollRetryDelayMs,
     });
     telegramChannel = telegram;
     runtime.attach(telegram);
+    await telegram.initialize();
     const durableInbox = new DurableInbox({
       filePath: path.join(config.storage.root, 'telegram-inbox.jsonl'),
       maxBytes: config.telegram.durableInboxMaxBytes,
@@ -175,25 +193,32 @@ async function main() {
       retryBaseMs: config.telegram.retryBaseMs,
       retryMaxMs: config.telegram.retryMaxMs,
     });
+    let groupCoordinator = null;
     const dispatcher = createDurableDispatcher({
       inbox: durableInbox,
       dispatchUpdate: (update) => telegram.ingestUpdate(update),
-      dispatchGroupBatch: async (record) => {
-        for (const updateId of record.updateIds || []) {
-          const update = durableInbox.getState(updateId)?.update;
-          if (update) await telegram.ingestUpdate(update);
-        }
-      },
+      dispatchGroupBatch: (record) => groupCoordinator.dispatchExactBatch(record),
+      dispatchGroupRun: (entries) => groupCoordinator.dispatchRun(entries),
       notifyDeadLetter: async (record) => {
         console.error(`[tether] Telegram update entered dead-letter: ${record.updateId}`);
       },
       retryIntervalMs: config.telegram.retryIntervalMs,
     });
+    groupCoordinator = createTelegramGroupCoordinator({
+      channel: telegram,
+      inbox: durableInbox,
+      timing: config.telegram.groupBatchTiming,
+      maxPendingMessages: config.telegram.groupMaxPendingMessages,
+      maxReplies: config.telegram.groupMaxReplies,
+      allowedReactions: config.telegram.groupAllowedReactions,
+    });
+    telegramGroupCoordinator = groupCoordinator;
     telegramDispatcher = dispatcher;
     telegram.onUpdate(createDurableUpdateHandler({
       channel: telegram,
       inbox: durableInbox,
       dispatcher,
+      groupCoordinator,
     }));
     await dispatcher.replayAll();
     dispatcher.start();

@@ -5,6 +5,21 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+
+function loadSharedMemoryModule(filename) {
+  const sourcePath = path.join(__dirname, '..', filename);
+  return require(fs.existsSync(sourcePath)
+    ? sourcePath
+    : path.join(__dirname, '..', 'runtime', 'memory', filename));
+}
+
+function loadSourceOrExportModule(sourceFile, exportFile) {
+  const sourcePath = path.join(__dirname, '..', sourceFile);
+  return require(fs.existsSync(sourcePath)
+    ? sourcePath
+    : path.join(__dirname, '..', exportFile));
+}
+
 const { AppendOnlyMemory } = require('../runtime/memory/append-only-memory.cjs');
 const {
   MemoryMaintenanceSupervisor,
@@ -18,15 +33,25 @@ const {
 const { TetherRuntime } = require('../runtime/tether-runtime.cjs');
 const { createMemoryChannel } = require('../runtime/channels/memory-channel.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
-const { validateMemoryBundle } = require('../runtime/memory/semantic-memory-validators.js');
-const { SemanticMemoryStore } = require('../runtime/memory/semantic-memory-store.js');
+const { validateMemoryBundle } = loadSharedMemoryModule('semantic-memory-validators.js');
+const { SemanticMemoryStore } = loadSharedMemoryModule('semantic-memory-store.js');
 const {
   VectorMemoryIndex,
   cosineSimilarity,
 } = require('../runtime/memory/vector-memory.cjs');
-const { DurableInbox } = require('../runtime/durable/durable-inbox.js');
-const { createDurableDispatcher } = require('../runtime/durable/durable-dispatcher.js');
-const { classifyDurableError } = require('../runtime/durable/durable-error-policy.js');
+const { LayeredMemory } = require('../runtime/memory/layered-memory.cjs');
+const { DurableInbox } = loadSourceOrExportModule(
+  'durable-inbox.js',
+  'runtime/durable/durable-inbox.js',
+);
+const { createDurableDispatcher } = loadSourceOrExportModule(
+  'durable-dispatcher.js',
+  'runtime/durable/durable-dispatcher.js',
+);
+const { classifyDurableError } = loadSourceOrExportModule(
+  'durable-error-policy.js',
+  'runtime/durable/durable-error-policy.js',
+);
 const { sendWithGroupRateLimit } = require('../lib/telegram/group-rate-limit.cjs');
 const {
   createFileOffsetStore,
@@ -37,6 +62,11 @@ const {
   splitTelegramText,
   telegramRequestTimeoutMs,
 } = require('../runtime/channels/telegram.cjs');
+const {
+  buildTelegramGroupBatch,
+  createTelegramGroupCoordinator,
+  parseTelegramGroupReplyEnvelope,
+} = require('../runtime/channels/telegram-group.cjs');
 const { loadTetherConfig, validateConfig } = require('../runtime/config-loader.cjs');
 const {
   assertAttribution,
@@ -49,13 +79,6 @@ const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
 const { findStaleManagedPaths } = require('../scripts/export-public-snapshot.cjs');
 const { verifyFileLock } = require('../scripts/verify-export-lock.cjs');
 const { usage: memoryCommandUsage } = require('../bin/tether-memory.cjs');
-
-function loadSharedMemoryModule(filename) {
-  const sourcePath = path.join(__dirname, '..', filename);
-  return require(fs.existsSync(sourcePath)
-    ? sourcePath
-    : path.join(__dirname, '..', 'runtime', 'memory', filename));
-}
 
 const { normalizeCardUserAddress } = loadSharedMemoryModule('memory-card-address.js');
 const { cardMarkdownPath } = loadSharedMemoryModule('memory-card-files.js');
@@ -158,7 +181,11 @@ async function main() {
       genericPolicy,
     ), 'utf8').startsWith('# Anchor daily · 2030-04-11'));
 
-    const exampleConfig = loadTetherConfig(path.join(__dirname, '..', 'config.example.json'), {
+    const publicRoot = path.join(__dirname, '..');
+    const exampleConfigPath = fs.existsSync(path.join(publicRoot, 'config.example.json'))
+      ? path.join(publicRoot, 'config.example.json')
+      : path.join(publicRoot, 'public', 'config.example.json');
+    const exampleConfig = loadTetherConfig(exampleConfigPath, {
       privateOverlayPath: path.join(root, 'missing-private-overlay.json'),
       env: { PRIMARY_API_KEY: 'synthetic-test-value' },
     });
@@ -176,7 +203,7 @@ async function main() {
       /apiKey is forbidden|http or https/,
     );
     assert.throws(
-      () => loadTetherConfig(path.join(__dirname, '..', 'config.example.json'), {
+      () => loadTetherConfig(exampleConfigPath, {
         privateOverlayPath: path.join(root, 'missing-private-overlay.json'),
         env: {},
       }),
@@ -267,6 +294,21 @@ async function main() {
         providers: [providerConfig()],
       }),
       /telegram.tokenEnv/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        telegram: { allowedGroups: { room: { mode: 'invented' } } },
+        providers: [providerConfig()],
+      }),
+      /allowedGroups\.room\.mode/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        providers: [providerConfig({ imageInput: 'local-path' })],
+      }),
+      /imageInput/,
     );
     assert.throws(
       () => validateConfig({
@@ -507,6 +549,43 @@ async function main() {
       (error) => error.code === 'TETHER_INFERENCE_AMBIGUOUS',
     );
     assert.equal(providerCalls, 4);
+
+    let contractHandler = null;
+    let contractAttempts = 0;
+    const contractDeliveries = [];
+    const contractChannel = {
+      id: 'contract-retry',
+      onMessage(next) { contractHandler = next; },
+      async send(message) { contractDeliveries.push(structuredClone(message)); },
+      async prepareOutput({ result }) {
+        contractAttempts += 1;
+        if (contractAttempts === 1) {
+          const error = new Error('synthetic response contract rejection');
+          error.code = 'TETHER_RESPONSE_CONTRACT_INVALID';
+          error.rejectedOutput = 'not-json';
+          error.rejectedProviderId = result.providerId;
+          throw error;
+        }
+        return result;
+      },
+      receive(message) { return contractHandler(structuredClone(message)); },
+    };
+    runtime.attach(contractChannel);
+    const contractInput = {
+      messageId: 'contract:synthetic-1',
+      text: 'safe contract retry',
+      metadata: { source: 'synthetic-contract' },
+    };
+    await assert.rejects(contractChannel.receive(contractInput), /response contract rejection/);
+    const rejectedCausal = [...runtime.causal.latest.values()].find(
+      (record) => record.input?.messageId === contractInput.messageId,
+    );
+    assert.equal(rejectedCausal.state, 'inference-rejected');
+    assert.equal(rejectedCausal.rejectedOutput.text, 'not-json');
+    const recoveredContract = await contractChannel.receive(contractInput);
+    assert.equal(recoveredContract.replayed, false);
+    assert.equal(contractDeliveries.length, 1);
+    assert.equal(providerCalls, 6, 'known-invalid output may be regenerated without ambiguous delivery');
 
     const secondSession = new SelfsameSession({
       stateFile,
@@ -1011,6 +1090,392 @@ async function main() {
       message: { message_id: 10, text: 'blocked', from: { id: 99 }, chat: { id: 12, type: 'private' } },
     }, { ownerIds: [11] }), null);
 
+    const attachmentRoot = path.join(root, 'telegram-attachments');
+    const attachmentChannel = createTelegramChannel({
+      api: {
+        async call(method, params) {
+          if (method === 'getMe') return { ok: true, result: { id: 900, username: 'anchor_bot' } };
+          if (method === 'getFile') {
+            return {
+              ok: true,
+              result: {
+                file_path: params.file_id === 'image-ref' ? 'photos/sample.jpg' : 'documents/notes.md',
+                file_size: params.file_id === 'image-ref' ? 4 : 18,
+              },
+            };
+          }
+          return { ok: true, result: [] };
+        },
+        async downloadFile(filePath) {
+          return filePath.endsWith('.jpg')
+            ? { buffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), mimeType: 'image/jpeg' }
+            : { buffer: Buffer.from('Synthetic note text'), mimeType: 'text/plain' };
+        },
+        async sendMessage() { return { ok: true, result: { message_id: 1 } }; },
+      },
+      ownerIds: ['11'],
+      allowedGroups: {
+        '-77': { mode: 'mention', mentionPatterns: ['Anchor'], ownerAlways: true },
+      },
+      attachmentDirectory: attachmentRoot,
+      offsetStore: createFileOffsetStore(path.join(root, 'attachment-offset.txt')),
+      log: () => {},
+    });
+    await attachmentChannel.initialize();
+    const attachmentUpdate = {
+      update_id: 41,
+      message: {
+        message_id: 14,
+        text: 'Anchor, inspect these.',
+        from: { id: 22, first_name: 'Rin' },
+        chat: { id: -77, type: 'supergroup', title: 'Archive room' },
+        photo: [{
+          file_id: 'image-ref', file_unique_id: 'image-unique', width: 2, height: 2, file_size: 4,
+        }],
+        document: {
+          file_id: 'file-ref', file_unique_id: 'file-unique', file_name: '../notes.md',
+          mime_type: 'text/plain', file_size: 18,
+        },
+      },
+    };
+    const preparedAttachment = await attachmentChannel.prepareUpdate(attachmentUpdate);
+    assert.equal(preparedAttachment.respond, true);
+    assert.equal(preparedAttachment.sourceParts.length, 1);
+    assert.equal(preparedAttachment.metadata.attachments.length, 2);
+    assert.match(preparedAttachment.text, /Synthetic note text/);
+    assert.doesNotMatch(preparedAttachment.text, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.equal(preparedAttachment.metadata.attachments[1].fileName, 'notes.md');
+    const durableAttachment = attachmentChannel.durablePreparedMessage(preparedAttachment);
+    assert.equal(Object.hasOwn(durableAttachment, 'sourceParts'), false);
+    const restoredAttachment = attachmentChannel.restoreDurablePreparedMessage(durableAttachment);
+    assert.equal(restoredAttachment.sourceParts[0].data, Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64'));
+    assert.throws(
+      () => attachmentChannel.restoreDurablePreparedMessage({
+        ...durableAttachment,
+        attachmentFiles: [{ type: 'image', path: '/tmp/outside.jpg', mimeType: 'image/jpeg' }],
+      }),
+      (error) => error.code === 'TETHER_ATTACHMENT_CACHE_INVALID',
+    );
+    const failedAttachmentChannel = createTelegramChannel({
+      api: {
+        async call(method) {
+          if (method === 'getFile') {
+            return { ok: true, result: { file_path: 'photos/missing.jpg', file_size: 4 } };
+          }
+          return { ok: true, result: { id: 901, username: 'failure_bot' } };
+        },
+        async downloadFile() { throw new Error('synthetic attachment transport failure'); },
+        async sendMessage() { return { ok: true, result: { message_id: 1 } }; },
+      },
+      ownerIds: ['11'],
+      allowedGroups: { '-77': { mode: 'all' } },
+      attachmentDirectory: path.join(root, 'failed-telegram-attachments'),
+      offsetStore: createFileOffsetStore(path.join(root, 'failed-attachment-offset.txt')),
+      log: () => {},
+    });
+    await assert.rejects(
+      failedAttachmentChannel.prepareUpdate(attachmentUpdate),
+      (error) => error.code === 'TETHER_ATTACHMENT_DOWNLOAD_FAILED',
+    );
+    const passiveGroupUpdate = structuredClone(attachmentUpdate);
+    passiveGroupUpdate.update_id = 42;
+    passiveGroupUpdate.message.message_id = 15;
+    passiveGroupUpdate.message.text = 'ordinary background line';
+    delete passiveGroupUpdate.message.photo;
+    delete passiveGroupUpdate.message.document;
+    assert.equal((await attachmentChannel.prepareUpdate(passiveGroupUpdate)).respond, false);
+    const bridgeStatusUpdate = structuredClone(passiveGroupUpdate);
+    bridgeStatusUpdate.update_id = 47;
+    bridgeStatusUpdate.message.message_id = 20;
+    bridgeStatusUpdate.message.from = { id: 900, is_bot: true, first_name: 'Relay' };
+    bridgeStatusUpdate.message.text = '[bridge-status] Anchor runtime unavailable';
+    assert.equal((await attachmentChannel.prepareUpdate(bridgeStatusUpdate)).respond, false);
+
+    const groupBatch = buildTelegramGroupBatch([
+      { ...preparedAttachment, updateId: 41, chatId: '-77' },
+      {
+        ...(await attachmentChannel.prepareUpdate({
+          update_id: 43,
+          message: {
+            message_id: 16,
+            text: 'Anchor, second line.',
+            from: { id: 23, first_name: 'Archivist' },
+            chat: { id: -77, type: 'supergroup', title: 'Archive room' },
+          },
+        })),
+        updateId: 43,
+        chatId: '-77',
+      },
+    ]);
+    assert.deepEqual(groupBatch.targetMessageIds, [14, 16]);
+    assert.match(groupBatch.providerText, /TARGET_JSONL/);
+    const validGroupEnvelope = parseTelegramGroupReplyEnvelope(
+      '{"replies":[{"text":"Acknowledged.","replyToMessageId":16}]}',
+      groupBatch.targetMessageIds,
+    );
+    assert.equal(validGroupEnvelope.valid, true);
+    assert.equal(parseTelegramGroupReplyEnvelope(
+      '{"replies":[{"text":"wrong target","replyToMessageId":999}]}',
+      groupBatch.targetMessageIds,
+    ).valid, false);
+
+    const groupedInbox = new DurableInbox({
+      filePath: path.join(root, 'grouped-inbox.jsonl'),
+      log: () => {},
+    });
+    const groupedMessages = [];
+    attachmentChannel.onMessage(async (message) => {
+      groupedMessages.push(message);
+      return { delivered: true };
+    });
+    const groupCoordinator = createTelegramGroupCoordinator({
+      channel: attachmentChannel,
+      inbox: groupedInbox,
+      timing: {
+        singleMessageMs: 20,
+        sameSenderIdleMs: 20,
+        sameSenderMaxMs: 20,
+        multiSenderIdleMs: 20,
+        multiSenderMaxMs: 20,
+      },
+      log: () => {},
+    });
+    const groupedUpdates = [attachmentUpdate, {
+      update_id: 44,
+      message: {
+        message_id: 17,
+        text: 'Anchor, third line.',
+        from: { id: 24, first_name: 'Keeper' },
+        chat: { id: -77, type: 'supergroup', title: 'Archive room' },
+      },
+    }];
+    for (const update of groupedUpdates) groupedInbox.receive(update);
+    await Promise.all(groupedUpdates.map((update) => groupCoordinator.ingestUpdate(update)));
+    assert.equal(groupedMessages.length, 1);
+    assert.equal(groupedMessages[0].metadata.groupBatch, true);
+    assert.deepEqual(groupedMessages[0].metadata.updateIds, [41, 44]);
+    assert.equal(groupedInbox.getState(41).state, 'done');
+    assert.equal(groupedInbox.getState(44).state, 'done');
+    const durableGroupRecord = groupedInbox.groupBatchForUpdate(41);
+    assert.deepEqual(durableGroupRecord.updateIds, [41, 44]);
+    assert.equal(JSON.stringify(durableGroupRecord).includes('sourceParts'), false);
+    groupCoordinator.stop();
+
+    const barrierInbox = new DurableInbox({
+      filePath: path.join(root, 'group-barrier-inbox.jsonl'),
+      log: () => {},
+    });
+    const blockedEarlierUpdate = {
+      update_id: 48,
+      message: {
+        message_id: 21,
+        text: 'Anchor, earlier failed line.',
+        from: { id: 24, first_name: 'Keeper' },
+        chat: { id: -77, type: 'supergroup', title: 'Archive room' },
+      },
+    };
+    const blockedLaterUpdate = {
+      update_id: 49,
+      message: {
+        message_id: 22,
+        text: 'Anchor, later line must wait.',
+        from: { id: 24, first_name: 'Keeper' },
+        chat: { id: -77, type: 'supergroup', title: 'Archive room' },
+      },
+    };
+    barrierInbox.receive(blockedEarlierUpdate);
+    barrierInbox.markProcessing(48);
+    barrierInbox.markFailed(48, new Error('synthetic earlier failure'));
+    barrierInbox.receive(blockedLaterUpdate);
+    const barrierCoordinator = createTelegramGroupCoordinator({
+      channel: attachmentChannel,
+      inbox: barrierInbox,
+      timing: { singleMessageMs: 10 },
+      log: () => {},
+    });
+    const barrierResult = await barrierCoordinator.ingestUpdate(blockedLaterUpdate);
+    assert.deepEqual(barrierResult, { deferred: true, reason: 'earlier-update-blocked' });
+    assert.equal(barrierInbox.getState(49).state, 'received');
+    barrierCoordinator.stop();
+
+    const observationRoot = path.join(root, 'layered-observation');
+    let observationProviderCalls = 0;
+    let observationProviderMessages = [];
+    const observationProviderRequests = [];
+    const observationProvider = {
+      async respond({ messages, purpose = 'chat' }) {
+        observationProviderCalls += 1;
+        observationProviderMessages = structuredClone(messages);
+        observationProviderRequests.push({ purpose, messages: structuredClone(messages) });
+        if (purpose === 'group-response-repair') {
+          return {
+            text: '{"replies":[{"text":"repaired reply","replyToMessageId":19}]}',
+            providerId: 'offline-observation-repair',
+          };
+        }
+        if (messages.some((message) => String(message.content || '').includes('TG_GROUP_BATCH_V1'))) {
+          return { text: 'malformed group output', providerId: 'offline-observation' };
+        }
+        return { text: 'continuous reply', providerId: 'offline-observation' };
+      },
+    };
+    const observationMemory = new LayeredMemory({
+      directory: path.join(observationRoot, 'memory'),
+      provider: observationProvider,
+      agent: { id: 'agent', displayName: 'Anchor' },
+      owner: { entityId: 'owner', displayName: 'Keeper' },
+      memory: {
+        semantic: { mode: 'off' },
+        cards: { enabled: false },
+        activeSoftTokenWatermark: 100_000,
+      },
+      log: () => {},
+    });
+    const observationSession = new SelfsameSession({
+      stateFile: path.join(observationRoot, 'session.json'),
+      agentId: 'agent',
+      createSession: async () => 'observation-session',
+      resumeSession: async (sessionId, stored) => observationMemory.verifySession(sessionId, {
+        expectedProof: stored.memoryProof || null,
+      }).passed,
+      canCreateSession: async () => !observationMemory.hasExistingAuthority(),
+    });
+    await observationSession.open({ allowCreate: true });
+    const observationChannel = createMemoryChannel('telegram-observation');
+    const observationRuntime = new TetherRuntime({
+      session: observationSession,
+      memory: observationMemory,
+      provider: observationProvider,
+      log: () => {},
+    });
+    observationRuntime.attach(observationChannel);
+    const observed = await observationChannel.receive({
+      messageId: 'telegram:update:passive-1',
+      text: 'background context',
+      respond: false,
+      metadata: {
+        source: 'telegram',
+        trustZone: 'group',
+        isGroup: true,
+        chatId: '-77',
+        chatTitle: 'Archive room',
+        senderId: '22',
+        senderDisplayName: 'Rin',
+        semanticRawMessages: [{
+          messageId: 'telegram:-77:18',
+          channel: 'telegram',
+          chatId: '-77',
+          senderId: '22',
+          senderDisplayName: 'Rin',
+          text: 'background context',
+          archiveRef: 'telegram-inbox.jsonl#45',
+          ingestionCursor: 'telegram:update:45',
+        }],
+      },
+    });
+    assert.equal(observed.observed, true);
+    assert.equal(observationProviderCalls, 0, 'passive group ingress must not invoke the model');
+    const observationData = observationMemory.getData();
+    assert.equal(observationData.rounds[0].ingressOnly, true);
+    const observationContext = observationMemory.buildMessages({ userText: 'current turn' }).messages;
+    assert.deepEqual(observationContext.map((message) => message.role), ['user', 'user']);
+    assert.equal(observationContext.some((message) => (
+      message.role === 'assistant' && message.content === ''
+    )), false);
+    await observationChannel.receive({
+      messageId: 'terminal:after-observation',
+      text: 'current turn',
+      metadata: { source: 'terminal', trustZone: 'trusted_local' },
+    });
+    assert.equal(observationProviderCalls, 1);
+    assert.deepEqual(observationProviderMessages.map((message) => message.role), ['user', 'user']);
+    const observationTurns = fs.readFileSync(
+      path.join(observationRoot, 'memory', 'transcript.jsonl'),
+      'utf8',
+    ).trim().split('\n').map(JSON.parse).filter((entry) => entry.type === 'turn');
+    assert.equal(observationTurns[0].ingressOnly, true);
+    assert.equal(observationTurns[0].groupIngress, true);
+    assert.equal(observationTurns[0].semanticRawMessages[0].senderDisplayName, 'Rin');
+
+    const runtimeGroupDeliveries = [];
+    const runtimeGroupChannel = createTelegramChannel({
+      id: 'telegram-runtime-group',
+      api: {
+        async call(method) {
+          if (method === 'getMe') {
+            return { ok: true, result: { id: 900, username: 'anchor_bot' } };
+          }
+          return { ok: true, result: true };
+        },
+        async sendMessage(params) {
+          runtimeGroupDeliveries.push(structuredClone(params));
+          return { ok: true, result: { message_id: 500 + runtimeGroupDeliveries.length } };
+        },
+      },
+      ownerIds: ['11'],
+      allowedGroups: {
+        '-77': { mode: 'mention', mentionPatterns: ['Anchor'], ownerAlways: true },
+      },
+      attachmentDirectory: path.join(observationRoot, 'telegram-attachments'),
+      offsetStore: createFileOffsetStore(path.join(observationRoot, 'telegram-offset.txt')),
+      groupRepairAttempts: 1,
+      log: () => {},
+    });
+    observationRuntime.attach(runtimeGroupChannel);
+    await runtimeGroupChannel.initialize();
+    const runtimeGroupInbox = new DurableInbox({
+      filePath: path.join(observationRoot, 'telegram-inbox.jsonl'),
+      log: () => {},
+    });
+    const runtimeGroupCoordinator = createTelegramGroupCoordinator({
+      channel: runtimeGroupChannel,
+      inbox: runtimeGroupInbox,
+      timing: {
+        singleMessageMs: 10,
+        sameSenderIdleMs: 10,
+        sameSenderMaxMs: 10,
+        multiSenderIdleMs: 10,
+        multiSenderMaxMs: 10,
+      },
+      log: () => {},
+    });
+    const runtimeGroupUpdate = {
+      update_id: 46,
+      message: {
+        message_id: 19,
+        text: 'Anchor, answer with the strict contract.',
+        date: 1_900_000_000,
+        from: { id: 23, first_name: 'Archivist' },
+        chat: { id: -77, type: 'supergroup', title: 'Archive room' },
+      },
+    };
+    runtimeGroupInbox.receive(runtimeGroupUpdate);
+    await runtimeGroupCoordinator.ingestUpdate(runtimeGroupUpdate);
+    assert.equal(observationProviderCalls, 3, 'group output must run one bounded repair');
+    assert.equal(observationProviderRequests[1].purpose, 'chat');
+    assert.equal(observationProviderRequests[2].purpose, 'group-response-repair');
+    assert.match(
+      observationProviderRequests[1].messages.find((message) => message.role === 'system').content,
+      /Telegram group response contract/,
+    );
+    assert.match(observationProviderRequests[1].messages.at(-1).content, /TARGET_JSONL/);
+    assert.equal(runtimeGroupDeliveries.length, 1);
+    assert.equal(runtimeGroupDeliveries[0].reply_parameters.message_id, 19);
+    assert.equal(runtimeGroupDeliveries[0].text, 'repaired reply');
+    const committedGroupRound = observationMemory.getData().rounds.at(-1);
+    assert.equal(committedGroupRound.groupIngress, true);
+    assert.match(committedGroupRound.user, /quoted JSONL/);
+    assert.equal(committedGroupRound.assistant, 'Reply to message 19: repaired reply');
+    assert.equal(runtimeGroupInbox.getState(46).state, 'done');
+    const committedGroupCausal = [...observationRuntime.causal.latest.values()].find(
+      (record) => record.input?.messageId === 'telegram:group-batch:-77:46',
+    );
+    assert.equal(
+      committedGroupCausal.output.text,
+      '{"replies":[{"text":"repaired reply","replyToMessageId":19}]}',
+    );
+    runtimeGroupCoordinator.stop();
+
     const identityPolicy = normalizeIdentityPolicy({
       agent: { id: 'agent' },
       owner: { entityId: 'owner', displayName: 'Owner', telegramUserIds: ['11'] },
@@ -1058,6 +1523,13 @@ async function main() {
       }).call('getUpdates', { timeout: 0 }),
       (error) => error.deliveryAmbiguous !== true,
     );
+    await assert.rejects(
+      createTelegramApi({
+        token: 'synthetic-token',
+        fetchImpl: async () => { throw new Error('file lookup connection vanished'); },
+      }).call('getFile', { file_id: 'synthetic' }),
+      (error) => error.deliveryAmbiguous !== true,
+    );
 
     const splitDeliveries = [];
     const splitChannel = createTelegramChannel({
@@ -1103,6 +1575,35 @@ async function main() {
         && error.manualRetryOnly === true
         && error.partialDeliveryCount === 1,
     );
+    const reactionAfterReplyChannel = createTelegramChannel({
+      api: {
+        async call(method) {
+          if (method === 'setMessageReaction') throw new Error('definite reaction rejection');
+          return { ok: true, result: [] };
+        },
+        async sendMessage() { return { ok: true, result: { message_id: 1 } }; },
+      },
+      ownerIds: ['11'],
+      groupAllowedReactions: ['👍'],
+      offsetStore: createFileOffsetStore(path.join(root, 'reaction-offset.txt')),
+      log: () => {},
+    });
+    await assert.rejects(
+      reactionAfterReplyChannel.send({
+        text: '{"replies":[{"text":"sent first","replyToMessageId":9}],"react":"👍"}',
+        sourceMessage: {
+          metadata: {
+            chatId: '-77',
+            groupBatch: true,
+            groupReplyTargetIds: [9],
+            groupAllowedReactions: ['👍'],
+          },
+        },
+      }),
+      (error) => error.deliveryAmbiguous === true
+        && error.manualRetryOnly === true
+        && error.partialDeliveryCount === 1,
+    );
     assert.throws(
       () => createTelegramApi({ token: 'synthetic-token', apiBase: 'http://example.invalid' }),
       /https unless the host is loopback/,
@@ -1128,6 +1629,8 @@ async function main() {
         semanticHighRiskModel: 'mock-semantic-high-risk',
         embeddingsUrl: 'https://example.invalid/v1/embeddings',
         embeddingModel: 'mock-embedding',
+        imageInput: 'data-url',
+        maxImageParts: 2,
       }],
       fetchImpl: async (url, options) => {
         requestedUrl = url;
@@ -1148,6 +1651,17 @@ async function main() {
     });
     assert.equal((await openAi.respond({ messages: [{ role: 'user', content: 'offline' }] })).text, 'ok');
     assert.equal(requestedBody.model, 'mock-model');
+    await openAi.respond({
+      messages: [{ role: 'user', content: 'inspect image' }],
+      sourceParts: [{
+        type: 'image',
+        mimeType: 'image/png',
+        data: Buffer.from('synthetic-image').toString('base64'),
+      }],
+    });
+    assert.equal(requestedBody.messages[0].content[0].text, 'inspect image');
+    assert.match(requestedBody.messages[0].content[1].image_url.url, /^data:image\/png;base64,/);
+    assert.equal(JSON.stringify(requestedBody).includes(attachmentRoot), false);
     await openAi.respond({ purpose: 'fold', messages: [{ role: 'user', content: 'fold' }] });
     assert.equal(requestedBody.model, 'mock-fold-model');
     await openAi.respond({ purpose: 'memory-card', messages: [{ role: 'user', content: 'card' }] });

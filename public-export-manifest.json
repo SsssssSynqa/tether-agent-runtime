@@ -19,6 +19,7 @@
     { "source": "runtime/tether-runtime.cjs", "target": "runtime/tether-runtime.cjs" },
     { "source": "runtime/channels/memory-channel.cjs", "target": "runtime/channels/memory-channel.cjs" },
     { "source": "runtime/channels/telegram.cjs", "target": "runtime/channels/telegram.cjs" },
+    { "source": "runtime/channels/telegram-group.cjs", "target": "runtime/channels/telegram-group.cjs" },
     { "source": "runtime/channels/terminal.cjs", "target": "runtime/channels/terminal.cjs" },
     { "source": "runtime/memory/append-only-memory.cjs", "target": "runtime/memory/append-only-memory.cjs" },
     { "source": "runtime/memory/layered-memory.cjs", "target": "runtime/memory/layered-memory.cjs" },

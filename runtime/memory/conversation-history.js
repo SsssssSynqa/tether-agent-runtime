@@ -24,6 +24,37 @@ function textIdentity(value) {
   return String(value || '');
 }
 
+function transcriptRawMessages(values) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter((message) => message && typeof message === 'object')
+    .map((message) => ({
+      messageId: message.messageId == null ? null : String(message.messageId),
+      conversationId: message.conversationId == null ? null : String(message.conversationId),
+      channel: message.channel == null ? null : String(message.channel),
+      chatId: message.chatId == null ? null : String(message.chatId),
+      senderId: message.senderId == null ? null : String(message.senderId),
+      senderEntityId: message.senderEntityId == null ? null : String(message.senderEntityId),
+      senderDisplayName: message.senderDisplayName == null
+        ? null
+        : String(message.senderDisplayName),
+      senderIsBot: message.senderIsBot === true,
+      sentAt: message.sentAt == null ? null : String(message.sentAt),
+      replyToMessageId: message.replyToMessageId == null
+        ? null
+        : String(message.replyToMessageId),
+      replyTargetAvailable: message.replyTargetAvailable === true,
+      text: String(message.text || ''),
+      archiveRef: message.archiveRef == null ? null : String(message.archiveRef),
+      ingestionCursor: message.ingestionCursor == null
+        ? null
+        : String(message.ingestionCursor),
+      attachmentRefs: Array.isArray(message.attachmentRefs)
+        ? message.attachmentRefs.map(String).filter(Boolean)
+        : [],
+    }));
+}
+
 function fsyncDirectoryFor(filePath) {
   try {
     const fd = fs.openSync(path.dirname(filePath), 'r');
@@ -197,7 +228,8 @@ function defaultFoldMessages({
         + '按每轮 sender 标签归属发言，不凭语气猜人，不使用“用户”“助手”“双方”等模糊主语。\n'
         + `2. 发言归属是硬规则：只有标着“${inputLabel}：”且 sender 属于 ${ownerName} 的消息，`
         + `才是 ${ownerName} 本人的话。${agentName} 在自己消息里替 ${ownerName} 写出的台词、反应、`
-        + `心理活动仍是 ${agentName} 的叙事，不得变成 ${ownerName} 的真实发言、偏好、同意或边界。\n`
+        + `心理活动仍是 ${agentName} 的叙事，不得变成 ${ownerName} 的真实发言、偏好、同意或边界。`
+        + '标着“Group transcript”的块是带 sender 字段的引用记录，只按块内 sender 归属，绝不能默认算作 owner 发言。\n'
         + `3. 写清楚谁在什么时候说了什么、决定了什么、答应了什么。方括号时间使用 ${localTimeLabel}；`
         + '把“今天”“明天”“下周”等相对时间换算成绝对日期。\n'
         + '4. 专有名词、数字、日期、项目名、称呼保持原样；禁止“讨论了”“涉及”“双方表示”等空包装。\n'
@@ -605,6 +637,8 @@ class ConversationHistory {
             causalIds: roundIds,
             user: String(round.user || ''),
             assistant: String(round.assistant || ''),
+            ingressOnly: round.ingressOnly === true,
+            groupIngress: round.groupIngress === true,
             chunks: [{ kind: 'content', text: String(round.assistant || '') }],
           };
         }
@@ -803,6 +837,8 @@ class ConversationHistory {
         assistant: String(entry.assistant || ''),
         ts: entry.at || new Date().toISOString(),
         causalIds: entry.causalIds,
+        ...(entry.ingressOnly === true ? { ingressOnly: true } : {}),
+        ...(entry.groupIngress === true ? { groupIngress: true } : {}),
         ...(entry.semanticPacketId
           ? { semanticPacketId: String(entry.semanticPacketId) }
           : {}),
@@ -1037,6 +1073,9 @@ class ConversationHistory {
       semanticPacketId: metadata.semanticPacketId || null,
       user: userText,
       assistant: assistantText,
+      ...(metadata.ingressOnly === true ? { ingressOnly: true } : {}),
+      ...(metadata.groupIngress === true ? { groupIngress: true } : {}),
+      semanticRawMessages: transcriptRawMessages(metadata.semanticRawMessages),
       chunks: Array.isArray(metadata.chunks) ? metadata.chunks : [],
       sourceParts: this._archiveSourceParts(metadata.sourceParts || []),
       completion: metadata.completion || null,
@@ -1046,6 +1085,8 @@ class ConversationHistory {
       user: userText,
       assistant: assistantText,
       ts: turnAt,
+      ...(metadata.ingressOnly === true ? { ingressOnly: true } : {}),
+      ...(metadata.groupIngress === true ? { groupIngress: true } : {}),
       ...(causalIds.length ? { causalIds } : {}),
       ...(metadata.sourceMessageId ? { sourceMessageId: String(metadata.sourceMessageId) } : {}),
       ...(metadata.semanticPacketId
@@ -1172,9 +1213,15 @@ class ConversationHistory {
           const t = this._localTimeLabel(r.ts);
           const user = this.renderOwnerForContext(r.user);
           const assistant = this.renderAssistantForContext(r.assistant);
-          return `${t ? `[${t}] ` : ''}${this.memoryPolicy.owner.displayName}：`
-            + `${String(user).slice(0, 80)}…／${this.memoryPolicy.agent.displayName}：`
-            + `${String(assistant).slice(0, 120)}…`;
+          const inputLabel = r.groupIngress === true
+            ? 'Group transcript (inner sender fields are authoritative)'
+            : this.memoryPolicy.owner.displayName;
+          const input = `${t ? `[${t}] ` : ''}${inputLabel}：`
+            + `${String(user).slice(0, 80)}…`;
+          return r.ingressOnly === true
+            ? input
+            : `${input}／${this.memoryPolicy.agent.displayName}：`
+              + `${String(assistant).slice(0, 120)}…`;
         })
         .join('\n');
       const fallbackLabel = this.semanticMemoryMode === 'full'
@@ -1394,10 +1441,15 @@ class ConversationHistory {
       .map((r) => {
         const t = this._localTimeLabel(r.ts);
         const prefix = t ? `[${t}] ` : '';
-        return `${prefix}${this.foldOwnerLabel}：`
-          + `${this.renderOwnerForContext(r.user)}\n`
-          + `${prefix}${this.foldAssistantLabel}：`
-          + `${this.renderAssistantForContext(r.assistant)}`;
+        const inputLabel = r.groupIngress === true
+          ? 'Group transcript (inner sender fields are authoritative)'
+          : this.foldOwnerLabel;
+        const input = `${prefix}${inputLabel}：`
+          + `${this.renderOwnerForContext(r.user)}`;
+        return r.ingressOnly === true
+          ? input
+          : `${input}\n${prefix}${this.foldAssistantLabel}：`
+            + `${this.renderAssistantForContext(r.assistant)}`;
       })
       .join('\n\n');
     try {

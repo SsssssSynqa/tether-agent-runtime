@@ -155,7 +155,24 @@ class CausalJournal {
   }
 
   markInferenceStarted(causalId) {
-    return this._transition(causalId, ['received'], 'inference-started');
+    return this._transition(causalId, ['received', 'inference-rejected'], 'inference-started');
+  }
+
+  markInferenceRejected(causalId, {
+    reason = 'response-contract-invalid',
+    text = '',
+    providerId = null,
+  } = {}) {
+    const rejectedText = String(text || '');
+    return this._transition(causalId, ['inference-started'], 'inference-rejected', {
+      rejectedOutput: {
+        reason: String(reason || 'response-contract-invalid').slice(0, 500),
+        text: rejectedText.slice(0, 16_000),
+        textSha256: sha256(rejectedText),
+        providerId: providerId ? String(providerId) : null,
+        rejectedAt: this.clock(),
+      },
+    });
   }
 
   commitOutput(causalId, { text, providerId = null } = {}) {

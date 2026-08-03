@@ -14,23 +14,23 @@
     },
     {
       "path": "bin/tether-memory.cjs",
-      "sha256": "37a95bc0cfb217a7887be1f4cb1b1aca61cd630fc541aade681427d9460dade2",
-      "size": 3527
+      "sha256": "e4ac65b89e608dba11f274824e51ac87ae209d4a2359885754ac56abfd597921",
+      "size": 3611
     },
     {
       "path": "bin/tether.cjs",
-      "sha256": "0c95c743df55470deeabf320c452d88548ef41f20c52439357899222402839da",
-      "size": 8706
+      "sha256": "bc5bad04bdb83f5999bb9eae8187a6c3c296d748a43bbd701c7026d031f7f9f3",
+      "size": 10000
     },
     {
       "path": "config.example.json",
-      "sha256": "e8a34614d6a06b0cc1859839751b191c9f1f5b98941afef1bac2bf962612f695",
-      "size": 2692
+      "sha256": "7d64fb4d1c22fadc8a89f1c70cb11b107e49345cdd3429af96b07c012f1fae63",
+      "size": 3444
     },
     {
       "path": "lib/telegram/group-batcher.cjs",
-      "sha256": "1af254c5e81a5f6696952750506ae57ace58811b2c292e13eab506b29cb1e1ec",
-      "size": 16336
+      "sha256": "c7d20fbf49dfc787b6b4b8522db0043fa9963aeaa344597f45535d16d6c46dbc",
+      "size": 16680
     },
     {
       "path": "lib/telegram/group-rate-limit.cjs",
@@ -39,8 +39,8 @@
     },
     {
       "path": "lib/telegram/image-utils.cjs",
-      "sha256": "f227341a2b90b2cadabc882d02562a583414359003690088292d80336009b287",
-      "size": 16435
+      "sha256": "0c0d11fbd6650a4f8297daaef36bbb44cc2c1276c47dcd63de2030af8610dcfe",
+      "size": 21731
     },
     {
       "path": "package.json",
@@ -54,8 +54,8 @@
     },
     {
       "path": "public-export-manifest.json",
-      "sha256": "a3ea32f7397dcef5c9b51c7c690a59430dbc968e0882224ddab6a169601994a9",
-      "size": 5611
+      "sha256": "2d64e943a4c114df826b94152ec63d6d2a7943569e038ee2dec467afcc9bc039",
+      "size": 5717
     },
     {
       "path": "runtime/bridge/group-ingress-sequencer.js",
@@ -74,8 +74,8 @@
     },
     {
       "path": "runtime/causal-journal.cjs",
-      "sha256": "d744d72c81c260bc52b71477edb622f2fe6af0e2987bb87ef407877dcdc87e8f",
-      "size": 6299
+      "sha256": "f3ca247ed10f37a8dfb59ef3ea70ca0163cc11e8e2bad3157c96188c4edcb753",
+      "size": 6883
     },
     {
       "path": "runtime/channels/memory-channel.cjs",
@@ -83,9 +83,14 @@
       "size": 476
     },
     {
+      "path": "runtime/channels/telegram-group.cjs",
+      "sha256": "ee1d3d12f6e181cef64fda0e3eb5da8089b81a66580f41cf2f63f219a2c6c820",
+      "size": 11131
+    },
+    {
       "path": "runtime/channels/telegram.cjs",
-      "sha256": "066d389bbe99bb73084fd9078da1a26a29ca224579b4b42a6ab25c4163771a36",
-      "size": 11286
+      "sha256": "35eb0fe45845884693cdd50540664342045d4825b91923028d71e97f1a026e2b",
+      "size": 29030
     },
     {
       "path": "runtime/channels/terminal.cjs",
@@ -94,8 +99,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "a44e41cfc3984bf14754ae08bb2d59d5c70723e45a9b483385743c7f6d817e7b",
-      "size": 15168
+      "sha256": "15be7eb79757d933a8662de975c03b1ba0cbfc34f30b698badbc89ab1780e787",
+      "size": 18075
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",
@@ -109,8 +114,8 @@
     },
     {
       "path": "runtime/durable/durable-inbox.js",
-      "sha256": "b56b104eefcf0f9fcf953af1a126017b00deeb4bf3fd2068e57bcdbbb627ca42",
-      "size": 20696
+      "sha256": "5ea6b916c92489bd785b7f4050b72abf2deaeb9c4bfe5bed8ebae679c28a90a3",
+      "size": 20802
     },
     {
       "path": "runtime/durable/durable-outbound.js",
@@ -144,13 +149,13 @@
     },
     {
       "path": "runtime/memory/conversation-history.js",
-      "sha256": "4c256cc819a23705d07a180e4f50d2a2ac1f43be243ae60f19c47904ae83f0ca",
-      "size": 64145
+      "sha256": "4e958ea4ed5f4963cfd1aafdd9c473e4a3cf115f660d98a0f30896f9d0cf03a3",
+      "size": 66858
     },
     {
       "path": "runtime/memory/layered-memory.cjs",
-      "sha256": "1b3cd4b189c347533a803e0974e916dd86e2133b26f183b402098d0a60fff84a",
-      "size": 23667
+      "sha256": "b5d89e6c77151e8b02ca2acaac1ab06a868c9539ee9429a188ecb398633acf4b",
+      "size": 25974
     },
     {
       "path": "runtime/memory/maintenance-supervisor.cjs",
@@ -189,8 +194,8 @@
     },
     {
       "path": "runtime/memory/memory-sources.js",
-      "sha256": "0c569837f572f43bc6fdda81f5c03064f9f6b98cd5cee39d609c3eb6b0bfc31a",
-      "size": 7196
+      "sha256": "53d8335c42c586403d325899718b8b8dccca51f713b11e632ad9a2ce9216356c",
+      "size": 7383
     },
     {
       "path": "runtime/memory/memory-time.js",
@@ -239,8 +244,8 @@
     },
     {
       "path": "runtime/providers/openai-compatible.cjs",
-      "sha256": "f7b6ae5ca9cfca4b3eefe43f69a57334d866c751c29eefc9df484aff8b9a9c08",
-      "size": 7288
+      "sha256": "ec9b265c6f3720c08bd53047dc02b0c5ae6bf839f8543e516a27ab7e3d9df5c2",
+      "size": 9202
     },
     {
       "path": "runtime/selfsame-session.cjs",
@@ -249,8 +254,8 @@
     },
     {
       "path": "runtime/tether-runtime.cjs",
-      "sha256": "28382115896938ba448389eadc1cabe2d7b063320bf5cd8b11c1ea75fbddf5bc",
-      "size": 11043
+      "sha256": "83654f97e0b08530783f1c90cb99d54c535fa386152abbb709709af87a0e2d21",
+      "size": 15805
     },
     {
       "path": "runtime/transport/chunk-emitter.js",
@@ -289,8 +294,8 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "655a6a84cf6024f06855cc49ef0a03bfef212e8344a2ddacb370d86a60b2d179",
-      "size": 52599
+      "sha256": "c00fcc3eff9653801d7153fbc7bbd3e4f0828ff521f8b8abef7c353e81073a7d",
+      "size": 73831
     }
   ]
 }

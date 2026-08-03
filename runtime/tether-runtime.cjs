@@ -68,14 +68,24 @@ class TetherRuntime {
 
   async _recordCommittedTurn(state, channel, sourceMessage, causalRecord, legacyUser = null) {
     const output = causalRecord.output;
+    const assistantHistoryText = typeof channel.historyAssistantText === 'function'
+      ? channel.historyAssistantText(output.text, sourceMessage)
+      : output.text;
     if (!this.layeredMemory) {
       return {
         user: legacyUser,
-        assistant: this._legacyAssistantRecord(state.sessionId, channel.id, causalRecord),
+        assistant: this.memory.appendMessage({
+          messageId: output.outputId,
+          sessionId: state.sessionId,
+          channelId: channel.id,
+          role: 'assistant',
+          text: assistantHistoryText,
+          metadata: { causalId: causalRecord.causalId, providerId: output.providerId },
+        }).record,
       };
     }
     const sourceMetadata = sourceMessage.metadata || {};
-    await this.memory.ensureTurn(sourceMessage.text, output.text, {
+    await this.memory.ensureTurn(sourceMessage.text, assistantHistoryText, {
       causalIds: [causalRecord.causalId],
       sessionId: state.sessionId,
       source: sourceMetadata.source || sourceMetadata.channel || channel.id,
@@ -86,10 +96,13 @@ class TetherRuntime {
       senderDisplayName: sourceMetadata.senderDisplayName || null,
       senderIsBot: sourceMetadata.senderIsBot === true,
       owner: sourceMetadata.owner === true,
+      groupIngress: sourceMetadata.isGroup === true,
       sentAt: sourceMetadata.sentAt || null,
       receivedAt: causalRecord.input?.receivedAt || sourceMetadata.receivedAt || null,
       completedAt: output.committedAt || null,
       attachmentRefs: sourceMetadata.attachmentRefs || [],
+      sourceParts: sourceMessage.sourceParts || [],
+      semanticRawMessages: sourceMetadata.semanticRawMessages || [],
       sourceMessageId: sourceMessage.messageId,
       outputMessageId: output.outputId,
       completion: { providerId: output.providerId || null },
@@ -108,7 +121,7 @@ class TetherRuntime {
         sessionId: state.sessionId,
         channelId: channel.id,
         role: 'assistant',
-        text: output.text,
+        text: assistantHistoryText,
         metadata: { causalId: causalRecord.causalId, providerId: output.providerId },
       }),
     };
@@ -121,35 +134,108 @@ class TetherRuntime {
     this.session.checkpoint(result.proof);
   }
 
-  async _providerMessages(user) {
+  async _providerMessages(user, sourceMessage = {}) {
+    const providerText = sourceMessage.providerText == null
+      ? user.text
+      : String(sourceMessage.providerText);
     if (this.layeredMemory) {
       const builder = typeof this.memory.buildMessagesAsync === 'function'
         ? this.memory.buildMessagesAsync.bind(this.memory)
         : this.memory.buildMessages.bind(this.memory);
-      return (await builder({
+      const messages = (await builder({
         personaPrompt: this.personaPrompt,
-        userText: user.text,
+        userText: providerText,
         request: {
           trustZone: user.metadata?.trustZone || null,
           chatId: user.metadata?.chatId || user.channelId,
           causalIds: user.metadata?.causalId ? [user.metadata.causalId] : [],
         },
       })).messages;
+      const systemPrompt = String(sourceMessage.systemPrompt || '').trim();
+      if (systemPrompt) {
+        const systemIndex = messages.findIndex((message) => message.role === 'system');
+        if (systemIndex >= 0) {
+          messages[systemIndex] = {
+            ...messages[systemIndex],
+            content: `${messages[systemIndex].content}\n\n${systemPrompt}`,
+          };
+        } else {
+          messages.unshift({ role: 'system', content: systemPrompt });
+        }
+      }
+      return messages;
     }
     const compiled = this.memory.compileContext({
       rawTailMessages: this.rawTailMessages,
       summaryLimit: this.summaryLimit,
       cardLimit: this.cardLimit,
     });
-    return [
+    const rawMessages = compiled.rawTail.map((entry) => ({ role: entry.role, content: entry.text }));
+    const currentUserIndex = rawMessages.findLastIndex((message) => message.role === 'user');
+    if (currentUserIndex >= 0) rawMessages[currentUserIndex].content = providerText;
+    const messages = [
       ...(this.personaPrompt ? [{ role: 'system', content: this.personaPrompt }] : []),
       ...compiled.summaries.map((entry) => ({ role: 'system', content: entry.text })),
       ...compiled.cards.map((entry) => ({
         role: 'system',
         content: `[Tether memory card: ${entry.cardType}:${entry.period.key}]\n${entry.content}`,
       })),
-      ...compiled.rawTail.map((entry) => ({ role: entry.role, content: entry.text })),
+      ...rawMessages,
     ];
+    const systemPrompt = String(sourceMessage.systemPrompt || '').trim();
+    if (systemPrompt) messages.unshift({ role: 'system', content: systemPrompt });
+    return messages;
+  }
+
+  async _recordObservation(channel, message) {
+    const state = await this.session.open({ allowCreate: Boolean(message.allowCreateSession) });
+    const causalId = `observation:${channel.id}:${message.messageId}`;
+    const metadata = message.metadata || {};
+    const observationText = metadata.isGroup
+      ? [
+          `[Telegram group observation · ${metadata.chatTitle || metadata.chatId || 'group'} · quoted JSON]`,
+          JSON.stringify({
+            sender: metadata.senderDisplayName || metadata.senderId || 'unknown',
+            senderId: metadata.senderId || null,
+            messageId: metadata.telegramMessageId || message.messageId,
+            text: String(message.text || ''),
+          }),
+        ].join('\n')
+      : message.text;
+    if (this.layeredMemory) {
+      await this.memory.ensureTurn(observationText, '', {
+        causalIds: [causalId],
+        sessionId: state.sessionId,
+        source: metadata.source || metadata.channel || channel.id,
+        trustZone: metadata.trustZone || null,
+        chatId: metadata.chatId || channel.id,
+        senderId: metadata.senderId || null,
+        senderEntityId: metadata.senderEntityId || null,
+        senderDisplayName: metadata.senderDisplayName || null,
+        senderIsBot: metadata.senderIsBot === true,
+        owner: metadata.owner === true,
+        groupIngress: metadata.isGroup === true,
+        sentAt: metadata.sentAt || null,
+        receivedAt: metadata.receivedAt || null,
+        attachmentRefs: metadata.attachmentRefs || [],
+        sourceParts: message.sourceParts || [],
+        semanticRawMessages: metadata.semanticRawMessages || [],
+        sourceMessageId: message.messageId,
+        ingressOnly: true,
+      });
+    } else {
+      this.memory.appendMessage({
+        messageId: message.messageId,
+        sessionId: state.sessionId,
+        channelId: channel.id,
+        role: 'user',
+        text: observationText,
+        metadata,
+      });
+    }
+    this._checkpoint(state.sessionId);
+    await this._maintainMemory();
+    return { sessionId: state.sessionId, causalId, observed: true };
   }
 
   async _maintainMemory() {
@@ -188,6 +274,7 @@ class TetherRuntime {
 
   async handle(channel, message) {
     if (!message?.messageId) throw new Error('Channel message requires a stable messageId');
+    if (message.respond === false) return this._recordObservation(channel, message);
     const state = await this.session.open({ allowCreate: Boolean(message.allowCreateSession) });
     const prepared = this.causal.prepareInput({
       sessionId: state.sessionId,
@@ -250,7 +337,7 @@ class TetherRuntime {
         alreadyDelivered: false,
       };
     }
-    if (causalRecord.state !== 'received') {
+    if (!['received', 'inference-rejected'].includes(causalRecord.state)) {
       throw new CausalStateError(
         `Unsupported causal state ${causalRecord.state}`,
         'TETHER_CAUSAL_STATE_UNKNOWN',
@@ -280,13 +367,39 @@ class TetherRuntime {
     const messages = await this._providerMessages({
       ...user,
       metadata: { ...(user.metadata || {}), causalId: causalRecord.causalId },
-    });
-    const result = await this.provider.respond({
-      sessionId: state.sessionId,
-      channelId: channel.id,
-      messages,
-      sourceMessage: user,
-    });
+    }, message);
+    let result;
+    try {
+      result = await this.provider.respond({
+        sessionId: state.sessionId,
+        channelId: channel.id,
+        messages,
+        sourceMessage: user,
+        sourceParts: message.sourceParts || [],
+      });
+      if (typeof channel.prepareOutput === 'function') {
+        result = await channel.prepareOutput({
+          result,
+          messages,
+          sourceMessage: message,
+          respond: (request = {}) => this.provider.respond({
+            sessionId: state.sessionId,
+            channelId: channel.id,
+            ...request,
+            sourceParts: request.sourceParts || message.sourceParts || [],
+          }),
+        });
+      }
+    } catch (error) {
+      if (error?.code === 'TETHER_RESPONSE_CONTRACT_INVALID') {
+        this.causal.markInferenceRejected(causalRecord.causalId, {
+          reason: error.message,
+          text: error.rejectedOutput || '',
+          providerId: error.rejectedProviderId || null,
+        });
+      }
+      throw error;
+    }
     causalRecord = this.causal.commitOutput(causalRecord.causalId, {
       text: result.text,
       providerId: result.providerId || null,

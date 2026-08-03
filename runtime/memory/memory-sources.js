@@ -117,10 +117,15 @@ function roundSource(round, index = 0, options = {}) {
   const at = round?.ts || new Date().toISOString();
   const owner = resolved.renderOwnerForContext(round?.user || '');
   const assistant = String(round?.assistant || '');
+  const inputLabel = round?.groupIngress === true
+    ? 'Group transcript (inner sender fields are authoritative)'
+    : resolved.memoryPolicy.sourceLabels.input;
   const text = [
     `【raw tail turn · ${at}】`,
-    `${resolved.memoryPolicy.sourceLabels.input}：${owner}`,
-    `${resolved.memoryPolicy.sourceLabels.assistant}：${assistant}`,
+    `${inputLabel}：${owner}`,
+    ...(round?.ingressOnly === true
+      ? []
+      : [`${resolved.memoryPolicy.sourceLabels.assistant}：${assistant}`]),
   ].join('\n');
   return {
     id: roundSourceId(round, index),

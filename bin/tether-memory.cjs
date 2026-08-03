@@ -22,6 +22,8 @@ function configuredProviders(config) {
       semanticExtractorModel: provider.semanticExtractorModel,
       semanticVerifierModel: provider.semanticVerifierModel,
       semanticHighRiskModel: provider.semanticHighRiskModel,
+      imageInput: provider.imageInput,
+      maxImageParts: provider.maxImageParts,
       embeddingsUrl: provider.embeddingsUrl,
       embeddingModel: provider.embeddingModel,
       embeddingDimensions: provider.embeddingDimensions,

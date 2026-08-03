@@ -268,10 +268,14 @@ class LayeredMemory {
     return {
       messages: [
         ...(systemContent ? [{ role: 'system', content: systemContent }] : []),
-        ...data.rounds.flatMap((round) => [
-          { role: 'user', content: String(round.user || '') },
-          { role: 'assistant', content: String(round.assistant || '') },
-        ]),
+        ...data.rounds.flatMap((round) => (
+          round.ingressOnly === true
+            ? [{ role: 'user', content: String(round.user || '') }]
+            : [
+                { role: 'user', content: String(round.user || '') },
+                { role: 'assistant', content: String(round.assistant || '') },
+              ]
+        )),
         { role: 'user', content: String(userText || '') },
       ],
       compiled,
@@ -404,7 +408,43 @@ class LayeredMemory {
     const occurredAt = validIsoTimestamp(metadata.receivedAt, metadata.sentAt);
     const completedAt = validIsoTimestamp(metadata.completedAt, occurredAt);
     const senderEntityId = this._semanticSender(metadata);
-    const rawMessages = [{
+    const suppliedRawMessages = Array.isArray(metadata.semanticRawMessages)
+      ? metadata.semanticRawMessages
+      : [];
+    const rawMessages = suppliedRawMessages.length
+      ? suppliedRawMessages.map((message, index) => {
+          const messageMetadata = {
+            ...metadata,
+            senderId: message.senderId,
+            senderEntityId: message.senderEntityId,
+            senderDisplayName: message.senderDisplayName,
+            senderIsBot: message.senderIsBot === true,
+          };
+          const entityId = this._semanticSender(messageMetadata);
+          return {
+            messageId: String(message.messageId || `${userMessageId}:${index}`),
+            conversationId,
+            channel: String(message.channel || source),
+            chatId: message.chatId == null ? chatId : String(message.chatId),
+            senderId: message.senderId == null ? null : String(message.senderId),
+            senderEntityId: entityId,
+            senderDisplayName: String(
+              message.senderDisplayName
+              || this.semantic.entityResolver.canonicalDisplayName(entityId, entityId),
+            ),
+            senderIsBot: message.senderIsBot === true,
+            sentAt: validIsoTimestamp(message.sentAt, occurredAt),
+            replyToMessageId: message.replyToMessageId == null
+              ? null
+              : String(message.replyToMessageId),
+            replyTargetAvailable: message.replyTargetAvailable === true,
+            text: String(message.text || ''),
+            archiveRef: String(message.archiveRef || `transcript.jsonl#${turnKey}`),
+            ingestionCursor: String(message.ingestionCursor || `${turnKey}:input:${index}`),
+            attachmentRefs: uniqueStrings(message.attachmentRefs),
+          };
+        })
+      : [{
       messageId: userMessageId,
       conversationId,
       channel: source,
@@ -423,7 +463,8 @@ class LayeredMemory {
       archiveRef: `transcript.jsonl#${turnKey}`,
       ingestionCursor: `${turnKey}:input`,
       attachmentRefs: uniqueStrings(metadata.attachmentRefs),
-    }, {
+    }];
+    if (!metadata.ingressOnly || String(assistantText || '')) rawMessages.push({
       messageId: assistantMessageId,
       conversationId,
       channel: source,
@@ -432,19 +473,19 @@ class LayeredMemory {
       senderDisplayName: this.policy.agent.displayName,
       senderIsBot: true,
       sentAt: completedAt,
-      replyToMessageId: userMessageId,
+      replyToMessageId: rawMessages.at(-1)?.messageId || userMessageId,
       replyTargetAvailable: true,
       text: String(assistantText || ''),
       archiveRef: `transcript.jsonl#${turnKey}`,
       ingestionCursor: `${turnKey}:assistant`,
       attachmentRefs: [],
-    }];
+    });
     return {
       ...(metadata.semanticPacketId ? { packetId: String(metadata.semanticPacketId) } : {}),
       rawMessages,
       source,
       cursorStart: `${turnKey}:input`,
-      cursorEnd: `${turnKey}:assistant`,
+      cursorEnd: metadata.ingressOnly ? `${turnKey}:input` : `${turnKey}:assistant`,
     };
   }
 
@@ -502,6 +543,11 @@ class LayeredMemory {
           semanticPacketId: entry.semanticPacketId || null,
           receivedAt: entry.at || null,
           completedAt: entry.at || null,
+          ingressOnly: entry.ingressOnly === true,
+          groupIngress: entry.groupIngress === true,
+          semanticRawMessages: Array.isArray(entry.semanticRawMessages)
+            ? entry.semanticRawMessages
+            : [],
           attachmentRefs: (Array.isArray(entry.sourceParts) ? entry.sourceParts : []).map(
             (part) => part?.archivePath || part?.path || part?.sha256,
           ),

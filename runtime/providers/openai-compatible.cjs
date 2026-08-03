@@ -62,11 +62,53 @@ function validatedProviderUrl(value, field = 'baseUrl') {
   return parsedUrl.href;
 }
 
+function imagePartsForProvider(sourceParts = [], limit = 4) {
+  return (Array.isArray(sourceParts) ? sourceParts : [])
+    .filter((part) => part?.type === 'image')
+    .slice(0, Math.max(1, Number(limit) || 4))
+    .map((part) => {
+      const mimeType = String(part.mimeType || '').toLowerCase();
+      const data = String(part.data || '');
+      if (!/^image\/(?:png|jpe?g|webp|gif)$/.test(mimeType)) {
+        throw new Error(`Unsupported provider image MIME type: ${mimeType || 'missing'}`);
+      }
+      if (!data || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
+        throw new Error('Provider image part is not valid base64');
+      }
+      return {
+        type: 'image_url',
+        image_url: { url: `data:${mimeType};base64,${data}` },
+      };
+    });
+}
+
+function messagesForProvider(messages, sourceParts, provider) {
+  const images = imagePartsForProvider(sourceParts, provider.maxImageParts);
+  if (!images.length || provider.imageInput === 'metadata-only' || !provider.imageInput) {
+    return messages;
+  }
+  if (provider.imageInput === 'reject') {
+    throw new Error('Provider is configured to reject image input');
+  }
+  if (provider.imageInput !== 'data-url') {
+    throw new Error(`Unknown provider imageInput mode: ${provider.imageInput}`);
+  }
+  const prepared = messages.map((message) => structuredClone(message));
+  const userIndex = prepared.findLastIndex((message) => message.role === 'user');
+  if (userIndex < 0) throw new Error('Image input requires a user message');
+  const content = prepared[userIndex].content;
+  const textParts = Array.isArray(content)
+    ? content
+    : [{ type: 'text', text: String(content || '') }];
+  prepared[userIndex] = { ...prepared[userIndex], content: [...textParts, ...images] };
+  return prepared;
+}
+
 function createOpenAICompatibleProvider({ providers, fetchImpl = globalThis.fetch, timeoutMs = 120000 } = {}) {
   if (!Array.isArray(providers) || providers.length === 0) throw new Error('Provider chain is empty');
   if (typeof fetchImpl !== 'function') throw new Error('A fetch implementation is required');
   return {
-    async respond({ messages, purpose = 'chat' }) {
+    async respond({ messages, purpose = 'chat', sourceParts = [] }) {
       const failures = [];
       for (const provider of providers) {
         try {
@@ -74,6 +116,7 @@ function createOpenAICompatibleProvider({ providers, fetchImpl = globalThis.fetc
           const model = modelForPurpose(provider, purpose);
           const maxTokens = maxTokensForPurpose(provider, purpose);
           validatedProviderUrl(provider.baseUrl);
+          const providerMessages = messagesForProvider(messages, sourceParts, provider);
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), Number(provider.timeoutMs || timeoutMs));
           timer.unref?.();
@@ -88,7 +131,7 @@ function createOpenAICompatibleProvider({ providers, fetchImpl = globalThis.fetc
               },
               body: JSON.stringify({
                 model,
-                messages,
+                messages: providerMessages,
                 ...(Number(maxTokens) > 0 ? { max_tokens: Number(maxTokens) } : {}),
               }),
               signal: controller.signal,
@@ -179,6 +222,7 @@ module.exports = {
   completionText,
   createOpenAICompatibleProvider,
   maxTokensForPurpose,
+  messagesForProvider,
   modelForPurpose,
   validatedProviderUrl,
 };

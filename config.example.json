@@ -68,7 +68,15 @@
   "telegram": {
     "enabled": false,
     "tokenEnv": "TELEGRAM_BOT_TOKEN",
-    "allowedGroups": {},
+    "allowedGroups": {
+      "GROUP_CHAT_ID": {
+        "enabled": false,
+        "mode": "mention",
+        "mentionPatterns": ["Your Agent"],
+        "ownerAlways": true,
+        "ignoreBotMessages": false
+      }
+    },
     "noReplyGroupIds": [],
     "rateLimitedGroupIds": [],
     "rateLimitStateDir": "./data/telegram-rate-limit",
@@ -78,7 +86,23 @@
     "maxAttempts": 6,
     "retryBaseMs": 2000,
     "retryMaxMs": 300000,
-    "durableInboxMaxBytes": 20971520
+    "durableInboxMaxBytes": 20971520,
+    "attachmentDirectory": "./data/telegram-attachments",
+    "maxImageBytes": 10485760,
+    "maxFileBytes": 20971520,
+    "maxFilePreviewChars": 12000,
+    "maxQuotedChars": 1000,
+    "groupMaxReplies": 6,
+    "groupAllowedReactions": [],
+    "groupRepairAttempts": 1,
+    "groupMaxPendingMessages": 100,
+    "groupBatchTiming": {
+      "singleMessageMs": 300,
+      "sameSenderIdleMs": 1200,
+      "sameSenderMaxMs": 2500,
+      "multiSenderIdleMs": 1600,
+      "multiSenderMaxMs": 4000
+    }
   },
   "providers": [
     {
@@ -93,6 +117,8 @@
       "semanticExtractorModel": "your-fast-model-id",
       "semanticVerifierModel": "your-model-id",
       "semanticHighRiskModel": "your-model-id",
+      "imageInput": "data-url",
+      "maxImageParts": 4,
       "embeddingsUrl": "https://api.example.invalid/v1/embeddings",
       "embeddingModel": "your-embedding-model-id"
     }
