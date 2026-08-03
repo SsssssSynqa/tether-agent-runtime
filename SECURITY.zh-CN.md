@@ -41,13 +41,18 @@ Selfsame Protocol 保护的是连续性，**它不是一个认证或加密协议
 - 自定义的 Telegram API base 适用同一条 HTTPS-或-loopback 边界；拒绝 URL 里的凭据、查询参数和 fragment。
 - 认证不要放在普通的供应商 `headers` 里；用 `apiKeyEnv` 或 `headerEnv`，让凭据值来自进程环境。
 - 运行时数据放在源码目录之外，并使用最小权限的文件系统权限。
+- 每个工具 workspace 都要与 `storage.root` 物理分离；Tether 会拒绝两个方向的包含关系，运营者仍应检查 mount 与符号链接布局。
+- 按通道审查工具策略。没有经过具体测试的需要时，群工具保持 deny；不可信写入要求 approval。
 - 除非有意配置了一层独立认证的反向代理，否则把 Console 与管理端点绑定在 loopback 上。
 - 把原始记录、订正、卡片、向量、日志和备份都当作敏感数据对待。
+- 把内置备份目录视为未加密明文；外部 workspace/附件根另设备份策略。
 - 在发送真实内容之前，先确认供应商与通道的数据留存策略。
 - 一旦某个密钥出现在终端记录、日志、issue 或 commit 里，**立即轮换**。
 - 能力策略要与上下文连续性分开审查。
 - 发布分支或发行归档之前，先跑 `scripts/check-public-snapshot`。
 - 备份原始权威，并测试恢复流程——**测试时不要创建一个替代的人格会话**。
+- 宿主机 service manager 应指向 `tether-supervisor`，不能再起第二个子 runtime；宿主机重启策略也要有界，让 crash-loop 耗尽保持可见。
+- 迁移、备份、恢复、记忆重建/回填或死信修改前，先停掉 supervisor 与 runtime；绝不能删 lock 绕过离线边界。
 
 ## 不在公开测试范围内
 

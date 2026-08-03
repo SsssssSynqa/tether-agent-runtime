@@ -1,0 +1,24 @@
+[Unit]
+Description=Tether continuous agent runtime
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=tether
+Group=tether
+WorkingDirectory=/absolute/path/to/tether-agent-runtime
+EnvironmentFile=/absolute/path/to/private/tether.env
+ExecStart=/absolute/path/to/node /absolute/path/to/tether-agent-runtime/bin/tether-supervisor.cjs /absolute/path/to/private/config.json
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=30
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

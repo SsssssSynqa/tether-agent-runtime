@@ -12,6 +12,7 @@ Tether is local-first: authoritative history and memory are stored in operator-c
 | Agent runtime | Authoritative session, causal IDs, active context, outputs | Local data directory and filesystem permissions |
 | Model provider | The prompt, selected history, attachments, and tool results sent for inference | Provider adapter and provider account policy |
 | Memory pipeline | Raw transcript plus derived cards, claims, events, corrections, and indexes | Local memory roots and retention policy |
+| Workspace tools | Operator-declared local roots, filenames, UTF-8 contents, and write results | Root allowlist, per-channel capability policy, approval journal, and size limits |
 | Tether Console | Read-only views of configured local memory folders | Loopback binding and local process access |
 | Backups | Whatever selected runtime and memory data is included | Operator-controlled destination and encryption |
 
@@ -36,9 +37,25 @@ Raw authority is intentionally append-only because identity continuity depends o
 - encryption appropriate to the device and threat model;
 - retention and backup policies;
 - careful handling of derived vectors and summaries, which may still reveal source content;
+- physical separation between every tool workspace and `storage.root` so model capabilities cannot reach continuity authority;
 - authenticated, auditable legal deletion procedures when deletion is required.
 
 Human corrections do not erase the original evidence. They append a superseding interpretation. Operators should communicate this behavior before collecting sensitive content.
+
+Tool workspace data is not part of Tether's continuity backup because workspace
+roots are required to be outside `storage.root`. A Telegram attachment directory
+configured outside that root is also excluded. Inventory and protect those paths
+separately.
+
+## Backups and restore artifacts
+
+The built-in backup format is a verified, content-addressed directory, not an
+encrypted archive. It may contain the session anchor, raw conversation,
+attachments, semantic records, tool journals, and delivery state in directly
+readable form. Encrypt backup media, restrict destination permissions, and do
+not upload a backup to a public issue or artifact store. Restore receipts and
+partial work directories are operational metadata and should be treated as
+sensitive until the drill is complete.
 
 ## Console exposure
 

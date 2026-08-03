@@ -39,8 +39,8 @@
     },
     {
       "path": "config.example.json",
-      "sha256": "48d6140d85f308b6ac50d7b3f8901a7333ed15bcef008467d88167bc11b7aeaf",
-      "size": 4233
+      "sha256": "f1e23e9c74fe6451ab591868035a748eccb6c60006eb0231e28a4fe264ef8e42",
+      "size": 4270
     },
     {
       "path": "lib/telegram/group-batcher.cjs",
