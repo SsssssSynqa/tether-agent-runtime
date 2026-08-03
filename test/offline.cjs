@@ -36,6 +36,20 @@ const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
 const { findStaleManagedPaths } = require('../scripts/export-public-snapshot.cjs');
 const { verifyFileLock } = require('../scripts/verify-export-lock.cjs');
 
+function loadSharedMemoryModule(filename) {
+  const sourcePath = path.join(__dirname, '..', filename);
+  return require(fs.existsSync(sourcePath)
+    ? sourcePath
+    : path.join(__dirname, '..', 'runtime', 'memory', filename));
+}
+
+const { normalizeCardUserAddress } = loadSharedMemoryModule('memory-card-address.js');
+const { cardMarkdownPath } = loadSharedMemoryModule('memory-card-files.js');
+const { MemoryCardManager } = loadSharedMemoryModule('memory-card-manager.js');
+const { normalizeMemoryPolicy } = loadSharedMemoryModule('memory-policy.js');
+const { roundSource } = loadSharedMemoryModule('memory-sources.js');
+const { operationalDayKey } = loadSharedMemoryModule('memory-time.js');
+
 function makeFlakyChannel(id) {
   let handler = null;
   let failuresRemaining = 1;
@@ -58,6 +72,78 @@ function makeFlakyChannel(id) {
 async function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tether-offline-'));
   try {
+    const genericPolicy = normalizeMemoryPolicy({
+      agent: { entityId: 'anchor', displayName: 'Anchor' },
+      owner: {
+        entityId: 'keeper',
+        displayName: 'Keeper',
+        disallowedDisplayNames: ['LegacyName'],
+        namingSubjects: ['Keeper'],
+      },
+      sourceLabels: { input: 'Human', assistant: 'Anchor' },
+      time: {
+        timezoneOffsetMinutes: -5 * 60,
+        cutoffHour: 4,
+        forceHour: 10,
+        quietMinutes: 30,
+        displayLabel: 'UTC-05:00',
+      },
+      files: {
+        dayDirectory: 'daily',
+        weekDirectory: 'weekly',
+        dayHeadingTemplate: '# {agent} daily · {period}',
+        weekHeadingTemplate: '# {agent} weekly · {period} through {end}',
+      },
+    });
+    assert.equal(
+      operationalDayKey('2030-04-12T09:00:00.000Z', genericPolicy.time),
+      '2030-04-12',
+    );
+    const genericSource = roundSource({
+      ts: '2030-04-11T12:00:00.000Z',
+      user: 'LegacyName requested durable memory.',
+      assistant: 'I will preserve it.',
+      causalIds: ['generic-memory-turn'],
+      provenance: { trustZones: ['dm'], chatIds: ['test'], senderIds: ['keeper'] },
+    }, 0, { memoryPolicy: genericPolicy });
+    assert.match(genericSource.text, /Human：LegacyName requested/);
+    assert.match(genericSource.text, /Anchor：I will preserve/);
+    const genericAddress = normalizeCardUserAddress(
+      'LegacyName requested durable memory.',
+      { sources: [genericSource], memoryPolicy: genericPolicy },
+    );
+    assert.equal(genericAddress.text, 'Keeper requested durable memory.');
+    const genericHistory = {
+      getData: () => ({
+        summaryHistory: [],
+        rounds: [{
+          ts: '2030-04-11T12:00:00.000Z',
+          user: 'LegacyName requested durable memory.',
+          assistant: 'I will preserve it.',
+          causalIds: ['generic-memory-turn'],
+          provenance: { trustZones: ['dm'], chatIds: ['test'], senderIds: ['keeper'] },
+        }],
+      }),
+      knownMemorySourceIds: () => [],
+    };
+    const genericCards = new MemoryCardManager({
+      history: genericHistory,
+      directory: path.join(root, 'generic-cards'),
+      memoryPolicy: genericPolicy,
+      policy: 'lossless',
+      now: () => '2030-04-12T16:00:00.000Z',
+      generateCard: async () => 'Keeper requested durable memory.',
+      log: () => {},
+    });
+    const genericMaintenance = await genericCards.maintainOne();
+    assert.equal(genericMaintenance.status, 'generated');
+    assert(fs.readFileSync(cardMarkdownPath(
+      genericCards.store.directory,
+      'day',
+      '2030-04-11',
+      genericPolicy,
+    ), 'utf8').startsWith('# Anchor daily · 2030-04-11'));
+
     const exampleConfig = loadTetherConfig(path.join(__dirname, '..', 'config.example.json'), {
       privateOverlayPath: path.join(root, 'missing-private-overlay.json'),
       env: { PRIMARY_API_KEY: 'synthetic-test-value' },

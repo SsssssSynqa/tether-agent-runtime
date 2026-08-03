@@ -49,8 +49,8 @@
     },
     {
       "path": "public-export-manifest.json",
-      "sha256": "d94007dee2e0fe07efc742176f32a3e1b48be479be67f55eb337f9a78c7f274e",
-      "size": 3642
+      "sha256": "6bfeeb0c38909350cc9409a86f2ab1858dd9c1e8e6e38ec0bd6f733d9b55fde0",
+      "size": 4453
     },
     {
       "path": "runtime/bridge/group-ingress-sequencer.js",
@@ -128,9 +128,54 @@
       "size": 14341
     },
     {
+      "path": "runtime/memory/candidate-output.js",
+      "sha256": "5d6e5a824ae6b47ac1fefc1cb6ccb380669ea01c6111c52fcb90af9a2a8eb8d5",
+      "size": 4996
+    },
+    {
       "path": "runtime/memory/compile-manifest-journal.js",
       "sha256": "471d69d674d993a1c4b3d6bc829e3ddd31d38867338a6391823dbb93668e295e",
       "size": 16107
+    },
+    {
+      "path": "runtime/memory/memory-card-address.js",
+      "sha256": "7155a617037321718c312d4083576c60cd6be084c93dc582db3fee79f49c2b5c",
+      "size": 7593
+    },
+    {
+      "path": "runtime/memory/memory-card-files.js",
+      "sha256": "57a1dac009cb39d184ded8324f99f61ff07ed3a6691266ffb2d8d050e41a5290",
+      "size": 9676
+    },
+    {
+      "path": "runtime/memory/memory-card-manager.js",
+      "sha256": "3f244c2eb5d6f4b7f7d29817ca4fa1b09a7b32568d03d5b785c0986efae5aa1f",
+      "size": 25217
+    },
+    {
+      "path": "runtime/memory/memory-card-store.js",
+      "sha256": "cbde0bc993194046fb3c6d7ce1d938792c783f51b0a4989e0bb7420986f45640",
+      "size": 11780
+    },
+    {
+      "path": "runtime/memory/memory-context-compiler.js",
+      "sha256": "13716478e6886128f2bbb6b16eb9dbcb23cbcd1c841619080369dac924464c22",
+      "size": 8436
+    },
+    {
+      "path": "runtime/memory/memory-policy.js",
+      "sha256": "6bc55afcc1e4bd11b574c30a369c26c162211ede06f4847ea42cbd69108a7c38",
+      "size": 6209
+    },
+    {
+      "path": "runtime/memory/memory-sources.js",
+      "sha256": "0c569837f572f43bc6fdda81f5c03064f9f6b98cd5cee39d609c3eb6b0bfc31a",
+      "size": 7196
+    },
+    {
+      "path": "runtime/memory/memory-time.js",
+      "sha256": "4724346ec6f1b83a946dbad464c0e80af8632ee1128e166bb0d413f21c6fcb43",
+      "size": 4751
     },
     {
       "path": "runtime/providers/openai-compatible.cjs",
@@ -189,8 +234,8 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "a40e6753151e5bdb3aebe44efa174eafd451b24a6f1333167c7dce9569b1255a",
-      "size": 36086
+      "sha256": "6956835fb2d5893f0e95b6733cecf9d91329d617b90ef3c645a9b8386684532a",
+      "size": 39456
     }
   ]
 }
