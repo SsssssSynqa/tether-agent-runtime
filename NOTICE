@@ -1,0 +1,19 @@
+Tether
+Copyright 2026 Synqa and Tether contributors
+
+This product includes software developed by the Tether project.
+Tether was extracted from a production agent runtime and generalized for
+public use.
+
+Tether is licensed under the Apache License, Version 2.0. The License does
+not grant permission to use project names, trademarks, service marks, or
+product names except for reasonable and customary use in describing the
+origin of the work and reproducing this NOTICE file.
+
+CODE_OF_CONDUCT.md is an adaptation of Contributor Covenant 2.1 and is
+separately licensed under CC-BY-SA-4.0. See THIRD_PARTY_NOTICES.md.
+
+lib/telegram/group-batcher.cjs, lib/telegram/group-rate-limit.cjs, and
+lib/telegram/image-utils.cjs contain modified MIT-licensed material from
+Codex-tg-Bridge. See THIRD_PARTY_NOTICES.md for the required copyright and
+permission notice.

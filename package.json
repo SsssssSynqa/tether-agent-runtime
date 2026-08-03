@@ -1,0 +1,19 @@
+{
+  "name": "tether-agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "One agent. One session. Every channel. Memory that stays.",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "tether": "./bin/tether.cjs"
+  },
+  "scripts": {
+    "start": "node ./bin/tether.cjs ./config.json",
+    "test": "node ./test/offline.cjs",
+    "verify:export": "node ./scripts/verify-export-lock.cjs"
+  }
+}

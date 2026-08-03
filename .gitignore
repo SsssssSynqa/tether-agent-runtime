@@ -1,0 +1,28 @@
+# Secrets and private overlays
+.env
+.env.*
+!.env.example
+config.json
+config.private.json
+*.private.json
+persona-policy.private.md
+*.private.md
+
+# Durable runtime state
+/data/
+/state/
+*.sock
+*.lock
+*.pid
+*.log
+*.jsonl
+*.sqlite*
+telegram-images/
+telegram-files/
+
+# Tooling
+node_modules/
+coverage/
+.DS_Store
+*.tmp
+*.bak*

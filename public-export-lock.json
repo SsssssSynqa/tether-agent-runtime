@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "exportPolicy": "explicit-allowlist-exact-bytes",
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "83b002cfb31f3f9b3682907544f511c25b3045bdf1797dcf9996e38c36a84e2c",
+      "size": 222
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "94cfb119973bd014aed0da6b5f0b7448ae903f3e71490569d8bd39d2189b92b6",
+      "size": 318
+    },
+    {
+      "path": "bin/tether.cjs",
+      "sha256": "9107f0334920a94c657b44d25b0d3377d81b398d1ae8a4847708256207d1427a",
+      "size": 3932
+    },
+    {
+      "path": "config.example.json",
+      "sha256": "70685becf1c36a88e6470f5accb4ace2999eb037489960a353443550b1e28703",
+      "size": 1193
+    },
+    {
+      "path": "lib/telegram/group-batcher.cjs",
+      "sha256": "1af254c5e81a5f6696952750506ae57ace58811b2c292e13eab506b29cb1e1ec",
+      "size": 16336
+    },
+    {
+      "path": "lib/telegram/group-rate-limit.cjs",
+      "sha256": "e392b7fff40de75d1e37e163fcb7f5dd305b7dc9efa5d0123a3ef811539bd9dd",
+      "size": 3394
+    },
+    {
+      "path": "lib/telegram/image-utils.cjs",
+      "sha256": "f227341a2b90b2cadabc882d02562a583414359003690088292d80336009b287",
+      "size": 16435
+    },
+    {
+      "path": "package.json",
+      "sha256": "40d2d2b29d36d3c8aa6918714c04205db38214c229b9a1abf847d2b5d7a5e810",
+      "size": 465
+    },
+    {
+      "path": "persona-policy.example.md",
+      "sha256": "a4caf2aba6a4f0535bffbd3ba9b95842068a0f2615c493329d6583f0afe75592",
+      "size": 435
+    },
+    {
+      "path": "public-export-manifest.json",
+      "sha256": "d94007dee2e0fe07efc742176f32a3e1b48be479be67f55eb337f9a78c7f274e",
+      "size": 3642
+    },
+    {
+      "path": "runtime/bridge/group-ingress-sequencer.js",
+      "sha256": "6b03fd7f8cc28b04945bb06e6785ab75d0c3d5b691f6086bf1e0736fcdccb1e4",
+      "size": 691
+    },
+    {
+      "path": "runtime/bridge/poll-watchdog.js",
+      "sha256": "1034a49b2da3723883dca1e303a47113f7ea7d3ada5bde5a94e9c4c4245a4df1",
+      "size": 882
+    },
+    {
+      "path": "runtime/bridge/telegram-request-policy.js",
+      "sha256": "0d7a2c1910277660d39e526b37a58337541e9ed3841e364a6a87040c4dcfad40",
+      "size": 525
+    },
+    {
+      "path": "runtime/causal-journal.cjs",
+      "sha256": "b0d23ffed7ea2761a87f03786424de4b9def0d4160b10230d137a57521eb7b82",
+      "size": 5402
+    },
+    {
+      "path": "runtime/channels/memory-channel.cjs",
+      "sha256": "8b50ce0e772160d8f16c907868b18a0ca88ffa31a545e759e68eaa5a4a8c6ccb",
+      "size": 476
+    },
+    {
+      "path": "runtime/channels/telegram.cjs",
+      "sha256": "f3503b0f137e1275bec33602d6d8994b535c127de11e94426ddfd7f125cd9554",
+      "size": 6886
+    },
+    {
+      "path": "runtime/channels/terminal.cjs",
+      "sha256": "6b865c7d4a729fb4e24ca50213d5b1dad7e47d8e22252fc829869551e65d6579",
+      "size": 1020
+    },
+    {
+      "path": "runtime/config-loader.cjs",
+      "sha256": "de8bd5a6842ec19dd543dde890c6056b612f59a81d61d2d9a67bf7f243aa1ddd",
+      "size": 7914
+    },
+    {
+      "path": "runtime/durable/durable-dispatcher.js",
+      "sha256": "a3879e7457bda3774d91468e07258d089af1eb934db905dfb8bfe4d50f0056df",
+      "size": 7324
+    },
+    {
+      "path": "runtime/durable/durable-error-policy.js",
+      "sha256": "fb9023838e5a324af2bafc08ba693414ca67c3f05d815d7259fd029e4938f0d4",
+      "size": 2168
+    },
+    {
+      "path": "runtime/durable/durable-inbox.js",
+      "sha256": "ccee9d6b593104c5153711e4b22cc9968483aaef86b044aa9f4262e75271493f",
+      "size": 20524
+    },
+    {
+      "path": "runtime/durable/durable-outbound.js",
+      "sha256": "27dda232d2ebbdf0bb07f405eef02d61f9ad29eaea574fdeaaa0e7a98017b226",
+      "size": 2061
+    },
+    {
+      "path": "runtime/identity-policy.cjs",
+      "sha256": "e28c1f60bb5c4223025a41873c21487ccd32dbd5ed883dde307910e1f83c60ec",
+      "size": 2838
+    },
+    {
+      "path": "runtime/instance-lock.cjs",
+      "sha256": "60f37c9bee55c008f85f6c1a48cab768d3fcd1a83fa3042326647a058a2f63e1",
+      "size": 2928
+    },
+    {
+      "path": "runtime/memory/append-only-memory.cjs",
+      "sha256": "93722143b432c8309cc1f8f3b2866fd08f3911dcf87e2fe9065946f42972af93",
+      "size": 14341
+    },
+    {
+      "path": "runtime/memory/compile-manifest-journal.js",
+      "sha256": "471d69d674d993a1c4b3d6bc829e3ddd31d38867338a6391823dbb93668e295e",
+      "size": 16107
+    },
+    {
+      "path": "runtime/providers/openai-compatible.cjs",
+      "sha256": "4e96a91d0c05984caa68b440fc4b332342b3334d45808a388a8dfc2853cebbee",
+      "size": 2911
+    },
+    {
+      "path": "runtime/selfsame-session.cjs",
+      "sha256": "0602900e1e334de30e5d79db651e7e5826a39983d1e58362556f4a7a4ba5c6ce",
+      "size": 5491
+    },
+    {
+      "path": "runtime/semantic/semantic-memory-store.js",
+      "sha256": "e8f1a4989fbf6c91ca588370ef0c6b05162fa7e3857163923e8876d47d805823",
+      "size": 48519
+    },
+    {
+      "path": "runtime/semantic/semantic-memory-validators.js",
+      "sha256": "361c4cd9df4b3cc0be499ee8d6421dbf81ab5bb2daf62c4a98342ce4356fd8f9",
+      "size": 18955
+    },
+    {
+      "path": "runtime/tether-runtime.cjs",
+      "sha256": "a7e12f5ec39817edf168e0901dd4c5a1e11ba515fdb45313b81564d3636c7572",
+      "size": 6924
+    },
+    {
+      "path": "runtime/transport/chunk-emitter.js",
+      "sha256": "a2e9f923c0153d417824cdbe1e5c50348d428dd9e53943957dd1b491710480be",
+      "size": 2227
+    },
+    {
+      "path": "runtime/transport/sse-accumulator.js",
+      "sha256": "8d805f6fa872b5c47a7ccf3cfba1399cd76a34039dc518d130364d0404bade77",
+      "size": 3340
+    },
+    {
+      "path": "scripts/export-public-snapshot.cjs",
+      "sha256": "994f47b00d102680181c977ba3ab0ab9748328d3bd64e084a4164b6806572d21",
+      "size": 4420
+    },
+    {
+      "path": "scripts/verify-export-lock.cjs",
+      "sha256": "a7b3f828b55022205af73a103961caa4e9f0436a74cef81f60748b1f45335290",
+      "size": 3401
+    },
+    {
+      "path": "telegram-reply-fallback.js",
+      "sha256": "edf903cd2094a25b04e51cea4649d4ff034a9c9e04eb25c575002a50e42d5caa",
+      "size": 1278
+    },
+    {
+      "path": "test/fixtures/semantic-memory.json",
+      "sha256": "404a3ac3e48690ae5c004fcfa714b843c0f5d669f84b25b18740fb8e8b999570",
+      "size": 1338
+    },
+    {
+      "path": "test/offline.cjs",
+      "sha256": "a2fc37706065d9bb4ff6adb81a2319b0f6580703e25aefc23eb33c67f924e594",
+      "size": 36074
+    }
+  ]
+}

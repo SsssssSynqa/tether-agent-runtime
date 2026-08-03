@@ -1,0 +1,340 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+
+const root = path.resolve(__dirname, '..');
+const self = path.relative(root, __filename).split(path.sep).join('/');
+const ignoredDirectories = new Set([
+  '.git', '.venv', 'node_modules', 'dist', 'build', 'coverage', '.vite',
+  '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache',
+]);
+const failures = [];
+
+function walk(directory) {
+  const files = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...walk(absolute));
+    else if (entry.isFile()) files.push(absolute);
+  }
+  return files;
+}
+
+function report(relative, message) {
+  failures.push(`${relative}: ${message}`);
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isCredentialHeaderName(name) {
+  const normalized = String(name || '').trim().toLowerCase().replace(/_/g, '-');
+  const compact = normalized.replace(/-/g, '');
+  return normalized === 'authorization'
+    || normalized === 'proxy-authorization'
+    || normalized === 'api-key'
+    || normalized === 'x-api-key'
+    || compact === 'apikey'
+    || compact === 'xapikey'
+    || normalized.endsWith('-token')
+    || normalized.includes('access-token')
+    || normalized.includes('secret')
+    || normalized.includes('password')
+    || normalized.includes('credential');
+}
+
+function isLoopbackHostname(hostname) {
+  const normalized = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  return normalized === 'localhost' || normalized === '::1' || /^127(?:\.\d{1,3}){3}$/.test(normalized);
+}
+
+function credentialQueryKeys(url) {
+  const credentialKey = /^(?:api-?key|key|token|access-?token|auth|authorization|secret|password|signature|sig)$/i;
+  return [...url.searchParams.keys()].filter((key) => credentialKey.test(key.replace(/_/g, '-')));
+}
+
+function inspectPublicConfig(relative) {
+  const absolute = path.join(root, relative);
+  let config;
+  try { config = JSON.parse(fs.readFileSync(absolute, 'utf8')); } catch (error) {
+    report(relative, `cannot parse public configuration example: ${error.message}`);
+    return;
+  }
+  if (Object.hasOwn(config.telegram || {}, 'token')) {
+    report(relative, 'telegram token must be referenced by tokenEnv, never stored inline');
+  }
+  for (const [index, provider] of (config.providers || []).entries()) {
+    const prefix = `providers[${index}]`;
+    if (Object.hasOwn(provider, 'apiKey')) {
+      report(relative, `${prefix}.apiKey is inline; use apiKeyEnv`);
+    }
+    if (provider.baseUrl) {
+      try {
+        const parsed = new URL(provider.baseUrl);
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          report(relative, `${prefix}.baseUrl must use HTTP or HTTPS`);
+        }
+        if (parsed.protocol === 'http:' && !isLoopbackHostname(parsed.hostname)) {
+          report(relative, `${prefix}.baseUrl uses HTTP for a non-loopback host`);
+        }
+        if (parsed.username || parsed.password) {
+          report(relative, `${prefix}.baseUrl contains URL userinfo credentials`);
+        }
+        const queryKeys = credentialQueryKeys(parsed);
+        if (queryKeys.length) {
+          report(relative, `${prefix}.baseUrl contains credential query parameters: ${queryKeys.join(', ')}`);
+        }
+      } catch (error) {
+        report(relative, `${prefix}.baseUrl is invalid: ${error.message}`);
+      }
+    }
+    if (provider.headers != null && !isPlainObject(provider.headers)) {
+      report(relative, `${prefix}.headers must be an object`);
+    }
+    for (const [headerName, value] of Object.entries(provider.headers || {})) {
+      if (isCredentialHeaderName(headerName) || /^(?:bearer|basic)\s+/i.test(String(value || '').trim())) {
+        report(relative, `${prefix}.headers.${headerName} may contain credentials; use headerEnv`);
+      }
+    }
+    if (provider.headerEnv != null && !isPlainObject(provider.headerEnv)) {
+      report(relative, `${prefix}.headerEnv must be an object`);
+    }
+    for (const [headerName, envName] of Object.entries(provider.headerEnv || {})) {
+      if (!headerName.trim() || !/^[A-Z_][A-Z0-9_]*$/.test(String(envName || ''))) {
+        report(relative, `${prefix}.headerEnv must map header names to environment variable names`);
+      }
+      if (Object.keys(provider.headers || {}).some((name) => name.toLowerCase() === headerName.toLowerCase())) {
+        report(relative, `${prefix} duplicates ${headerName} in headers and headerEnv`);
+      }
+    }
+  }
+}
+
+function isAllowedEnvironmentExample(relative) {
+  return relative === '.env.example' || relative.endsWith('/.env.example');
+}
+
+const forbiddenFilePatterns = [
+  /(^|\/)\.env(?:\.|$)/i,
+  /(^|\/)(?:offset|session)\.txt$/i,
+  /(^|\/)telegram-live\.jsonl$/i,
+  /conversation-history/i,
+  /(^|\/)\.[A-Za-z0-9_-]+-(?:session|conversation-history|terminal-events)(?:\.|$)/i,
+  /\.(?:log|sqlite|sqlite3|db|pem|p12|pfx)$/i,
+  /\.(?:bak|backup)(?:[-.]|$)/i,
+  /(^|\/)(?:telegram-images|telegram-files)(?:\/|$)/i,
+];
+
+const textRules = [
+  ['absolute macOS/Linux home path', /\/(?:Users|home)\/[A-Za-z0-9._-]+\//g],
+  ['absolute Windows user path', /[A-Za-z]:\\Users\\[^\\\s]+\\/g],
+  ['Telegram-style bot token', /(?<![A-Za-z0-9])\d{8,12}:[A-Za-z0-9_-]{30,}(?![A-Za-z0-9])/g],
+  ['OpenAI-style secret', /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/g],
+  ['GitHub token', /(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{30,}/g],
+  ['Slack token', /(?<![A-Za-z0-9])xox[baprs]-[A-Za-z0-9-]{20,}/g],
+  ['Google API key', /(?<![A-Za-z0-9])AIza[A-Za-z0-9_-]{30,}/g],
+  ['private key material', /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g],
+  ['UUID-like live identifier', /(?<![A-Fa-f0-9])[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-8][A-Fa-f0-9]{3}-[89abAB][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}(?![A-Fa-f0-9])/g],
+  ['private source commit identifier', /(?:"sourceBaseline"\s*:\s*"|^[a-z_]+_commit=)[A-Fa-f0-9]{40}/gmi],
+  ['long numeric channel or user identifier', /(?<![A-Fa-f0-9])[-+]?\d{9,14}(?![A-Fa-f0-9])/g],
+  ['private-network URL', /https?:\/\/(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?::\d+)?(?:\/|\b)/g],
+  ['private DNS suffix', /https?:\/\/[A-Za-z0-9._-]+\.(?:internal|local)(?::\d+)?(?:\/|\b)/g],
+  ['private source codename', new RegExp(['syn', 'er(?:gia)?'].join(''), 'gi')],
+];
+
+for (const absolute of walk(root)) {
+  const relative = path.relative(root, absolute).split(path.sep).join('/');
+  const stat = fs.statSync(absolute);
+  if (stat.size > 2 * 1024 * 1024) report(relative, `unexpected file size ${stat.size} bytes`);
+
+  for (const pattern of forbiddenFilePatterns) {
+    if (pattern.test(relative) && !(pattern === forbiddenFilePatterns[0] && isAllowedEnvironmentExample(relative))) {
+      report(relative, 'production-state or secret-bearing filename');
+      break;
+    }
+  }
+
+  if (relative === self) continue;
+  const bytes = fs.readFileSync(absolute);
+  if (bytes.includes(0)) continue;
+  const text = bytes.toString('utf8');
+  for (const [label, pattern] of textRules) {
+    pattern.lastIndex = 0;
+    const match = pattern.exec(text);
+    if (match) report(relative, `${label} near byte ${match.index}`);
+  }
+}
+
+for (const relative of [
+  'config.example.json',
+  'examples/config.minimal.json',
+  'examples/config.private.example.json',
+]) {
+  inspectPublicConfig(relative);
+}
+
+const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+if (!readme.includes('One agent. One session. Every channel. Memory that stays.')) {
+  report('README.md', 'missing the canonical Tether positioning line');
+}
+if (!/^# Tether\s+\n\s*Tether is a local-first agent runtime that preserves one continuous identity/m.test(readme)) {
+  report('README.md', 'first sentence must position identity continuity');
+}
+
+const configurationDocs = fs.readFileSync(path.join(root, 'docs', 'CONFIGURATION.md'), 'utf8');
+for (const marker of ['`headerEnv`', '`127.0.0.0/8`', 'URL userinfo', 'credential query parameters']) {
+  if (!configurationDocs.includes(marker)) {
+    report('docs/CONFIGURATION.md', `missing provider safety contract marker: ${marker}`);
+  }
+}
+const adapterDocs = fs.readFileSync(path.join(root, 'docs', 'ADAPTERS.md'), 'utf8');
+for (const marker of ['`telegram:update:<update_id>`', '`telegramMessageId`', '`updateKind`', '`edited_message`']) {
+  if (!adapterDocs.includes(marker)) {
+    report('docs/ADAPTERS.md', `missing Telegram causal identity marker: ${marker}`);
+  }
+}
+
+const protocolPath = path.join(root, 'SELFSAME_PROTOCOL.md');
+const protocolDigestPath = path.join(root, 'SELFSAME_PROTOCOL.sha256');
+if (!fs.existsSync(protocolPath) || !fs.existsSync(protocolDigestPath)) {
+  report('SELFSAME_PROTOCOL.md', 'protocol or checksum file missing');
+} else {
+  const expected = fs.readFileSync(protocolDigestPath, 'utf8').trim().split(/\s+/)[0];
+  const actual = crypto.createHash('sha256').update(fs.readFileSync(protocolPath)).digest('hex');
+  if (actual !== expected) report('SELFSAME_PROTOCOL.md', `checksum mismatch: expected ${expected}, found ${actual}`);
+}
+
+for (const workflowName of ['ci.yml', 'codeql.yml']) {
+  const workflowPath = path.join(root, '.github', 'workflows', workflowName);
+  if (!fs.existsSync(workflowPath)) {
+    report(`.github/workflows/${workflowName}`, 'required workflow missing');
+    continue;
+  }
+  const workflow = fs.readFileSync(workflowPath, 'utf8');
+  if (!/^permissions:\s*$/m.test(workflow)) report(`.github/workflows/${workflowName}`, 'top-level permissions block missing');
+  if (/pull_request_target\s*:/.test(workflow)) report(`.github/workflows/${workflowName}`, 'pull_request_target is forbidden');
+  if (/permissions:\s*(?:write-all|write)\b/.test(workflow)) report(`.github/workflows/${workflowName}`, 'broad write permission is forbidden');
+  if (/\$\{\{\s*secrets\./.test(workflow)) report(`.github/workflows/${workflowName}`, 'offline public workflow must not consume repository secrets');
+}
+
+const apacheLicenseDigest = 'a7f55b2cb68997f729e6199720d4d3cae47633aba0254a84b2d36ab284be9d45';
+const licensePath = path.join(root, 'LICENSE');
+const noticePath = path.join(root, 'NOTICE');
+const thirdPartyNoticesPath = path.join(root, 'THIRD_PARTY_NOTICES.md');
+const packagePath = path.join(root, 'package.json');
+const supersededLicensePlaceholder = [
+  ['LICENSE', 'PENDING.md'].join('-'),
+  ['license', 'pending'].join(' '),
+];
+const pendingPath = path.join(root, supersededLicensePlaceholder[0]);
+if (fs.existsSync(pendingPath)) report(supersededLicensePlaceholder[0], 'superseded license placeholder must be removed');
+if (!fs.existsSync(licensePath)) {
+  report('LICENSE', 'Apache-2.0 license text is missing');
+} else {
+  const digest = crypto.createHash('sha256').update(fs.readFileSync(licensePath)).digest('hex');
+  if (digest !== apacheLicenseDigest) report('LICENSE', 'does not match the reviewed Apache License 2.0 text');
+}
+if (!fs.existsSync(noticePath)) {
+  report('NOTICE', 'Apache NOTICE file is missing');
+} else {
+  const notice = fs.readFileSync(noticePath, 'utf8');
+  for (const marker of ['Tether', 'Copyright 2026 Synqa and Tether contributors', 'Apache License, Version 2.0']) {
+    if (!notice.includes(marker)) report('NOTICE', `missing required attribution: ${marker}`);
+  }
+}
+if (!fs.existsSync(thirdPartyNoticesPath)) {
+  report('THIRD_PARTY_NOTICES.md', 'third-party attribution file is missing');
+} else {
+  const thirdPartyNotices = fs.readFileSync(thirdPartyNoticesPath, 'utf8');
+  for (const marker of [
+    'Contributor Covenant',
+    'CC-BY-SA-4.0',
+    'CODE_OF_CONDUCT.md',
+    'Copyright (c) 2026 Codex-tg-Bridge contributors',
+    'lib/telegram/group-batcher.cjs',
+    'lib/telegram/group-rate-limit.cjs',
+    'lib/telegram/image-utils.cjs',
+    'Permission is hereby granted, free of charge',
+  ]) {
+    if (!thirdPartyNotices.includes(marker)) report('THIRD_PARTY_NOTICES.md', `missing third-party attribution: ${marker}`);
+  }
+}
+
+for (const relative of [
+  'lib/telegram/group-batcher.cjs',
+  'lib/telegram/group-rate-limit.cjs',
+  'lib/telegram/image-utils.cjs',
+]) {
+  const absolute = path.join(root, relative);
+  if (!fs.existsSync(absolute) || !fs.readFileSync(absolute, 'utf8').includes('SPDX-License-Identifier: Apache-2.0 AND MIT')) {
+    report(relative, 'modified Codex-tg-Bridge material must declare Apache-2.0 AND MIT SPDX');
+  }
+}
+if (!fs.existsSync(packagePath)) {
+  report('package.json', 'package metadata is missing');
+} else {
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+  if (packageJson.license !== 'Apache-2.0') report('package.json', 'license SPDX identifier must be Apache-2.0');
+}
+
+const requiredSpdx = [
+  'SELFSAME_PROTOCOL.md',
+  'Makefile',
+  'scripts/check-public-snapshot',
+  'scripts/check-markdown-links.cjs',
+  'scripts/probe-selfsame-protocol.cjs',
+  '.github/workflows/ci.yml',
+  '.github/workflows/codeql.yml',
+  '.github/dependabot.yml',
+];
+for (const relative of requiredSpdx) {
+  const absolute = path.join(root, relative);
+  if (!fs.existsSync(absolute) || !fs.readFileSync(absolute, 'utf8').includes('SPDX-License-Identifier: Apache-2.0')) {
+    report(relative, 'missing Apache-2.0 SPDX identifier');
+  }
+}
+
+const codeOfConductPath = path.join(root, 'CODE_OF_CONDUCT.md');
+if (!fs.existsSync(codeOfConductPath)) {
+  report('CODE_OF_CONDUCT.md', 'code of conduct is missing');
+} else {
+  const codeOfConduct = fs.readFileSync(codeOfConductPath, 'utf8');
+  if (!codeOfConduct.includes('SPDX-License-Identifier: CC-BY-SA-4.0')) {
+    report('CODE_OF_CONDUCT.md', 'adapted Contributor Covenant must retain CC-BY-SA-4.0 SPDX');
+  }
+  if (codeOfConduct.includes('SPDX-License-Identifier: Apache-2.0')) {
+    report('CODE_OF_CONDUCT.md', 'adapted Contributor Covenant must not be stamped Apache-2.0');
+  }
+}
+
+const obsoleteLicenseMarkers = [
+  ['AG', 'PL-3.0'].join(''),
+  ['GNU', 'Affero'].join(' '),
+  ['LICENSE', 'PENDING'].join('-'),
+  ['UN', 'LICENSED'].join(''),
+  ['license is', 'pending'].join(' '),
+  supersededLicensePlaceholder[1],
+];
+for (const absolute of walk(root)) {
+  const relative = path.relative(root, absolute).split(path.sep).join('/');
+  if (relative === self) continue;
+  const bytes = fs.readFileSync(absolute);
+  if (bytes.includes(0)) continue;
+  const text = bytes.toString('utf8');
+  for (const marker of obsoleteLicenseMarkers) {
+    if (text.toLowerCase().includes(marker.toLowerCase())) report(relative, `obsolete license marker: ${marker}`);
+  }
+}
+
+if (failures.length) {
+  process.stderr.write(`Public snapshot guard: FAIL (${failures.length})\n- ${failures.join('\n- ')}\n`);
+  process.exitCode = 1;
+} else {
+  process.stdout.write('Public snapshot guard: PASS\n');
+}

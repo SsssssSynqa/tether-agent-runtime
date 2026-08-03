@@ -1,0 +1,193 @@
+{
+  "file_count": 37,
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "67752e5562ab8f3d6324622866b35ead1753686ceb531920f72f548026c8a02c",
+      "size": 438
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "e860512c4e13e772600bcd3e21637ee01f2fd6791e88e33236658ed28a326b34",
+      "size": 105
+    },
+    {
+      "path": "README.md",
+      "sha256": "f6f3e03ccfc370e0ce420414584fc1b6c7ddbec6c58c3d2844e9dd8567bfb4cb",
+      "size": 4939
+    },
+    {
+      "path": "backend/requirements.txt",
+      "sha256": "e46aab3d20c1a28a9caa94c3b88fb6aad8d5829625a01fa157195b781e50bb7b",
+      "size": 66
+    },
+    {
+      "path": "backend/tests/test_tether_console.py",
+      "sha256": "facd26591a425f97bbb9a09ce16981275cb4f75a76b32796592577187c2181ce",
+      "size": 11419
+    },
+    {
+      "path": "backend/tether_console/__init__.py",
+      "sha256": "ad5ef21e743e890167ed7d1a108a4342e6b314c47ed3e55a304f2ef142802c71",
+      "size": 212
+    },
+    {
+      "path": "backend/tether_console/__main__.py",
+      "sha256": "9f29ba70ebade03428138b9be428b94046272919e5de8c215b06866877cd73dd",
+      "size": 344
+    },
+    {
+      "path": "backend/tether_console/app.py",
+      "sha256": "f308d58919e986501c3b9d1607d228de787606571ba14f89e31b95cd15cd84ea",
+      "size": 3532
+    },
+    {
+      "path": "backend/tether_console/config.py",
+      "sha256": "7caf50e29370710baa6dc8468e02ba4c8d82acc01c211c674a7e54ac363e8ea4",
+      "size": 1767
+    },
+    {
+      "path": "backend/tether_console/readers.py",
+      "sha256": "a976724a9a7ffde5e8cb2ef9fd6076bf17e14557fd0cff931854b071ce4fdb47",
+      "size": 21813
+    },
+    {
+      "path": "backend/tether_console/service.py",
+      "sha256": "1cb1a307c3ea3946b2eca3cb2021100d70a2812e51b3f31dfac8ceb3c3a775f8",
+      "size": 4470
+    },
+    {
+      "path": "frontend/index.html",
+      "sha256": "a68036d280b3a0518dbab899ec8b75799b8396df442ab2d52e74f527eac056d5",
+      "size": 471
+    },
+    {
+      "path": "frontend/package.json",
+      "sha256": "f29b3cb738bd1b00caff3aefd21bd1a862166a1b930dcdd2574968894cb1af73",
+      "size": 394
+    },
+    {
+      "path": "frontend/pnpm-lock.yaml",
+      "sha256": "b290e50d889e87013fc18c74570c00547eeb66c188c640c0a41a6c52f7d591d9",
+      "size": 22298
+    },
+    {
+      "path": "frontend/src/api.js",
+      "sha256": "c151a003bfaf037a770a3adadbd4db4f98fe6f88ccd7ec09bfef5c57e3408537",
+      "size": 919
+    },
+    {
+      "path": "frontend/src/main.js",
+      "sha256": "3733d9de3adec54574adafca653151f735e978157ad6224af2205476dee2e22f",
+      "size": 1277
+    },
+    {
+      "path": "frontend/src/model.js",
+      "sha256": "cdc02443ec01887f76ac9848bd6243ea76934396dc42f6e0172cc3258da4efb9",
+      "size": 1236
+    },
+    {
+      "path": "frontend/src/style.css",
+      "sha256": "fe17b1c55a19f7b89dcf78d628d0c0023711ea3e6380b5be2f938d05d24ca741",
+      "size": 11202
+    },
+    {
+      "path": "frontend/src/tether-memory-policy.js",
+      "sha256": "f27ad159f8168da3ad4de3962d812b5f03f152130981abb123bbd14f40ee565f",
+      "size": 848
+    },
+    {
+      "path": "frontend/src/view.js",
+      "sha256": "85249e591dcd54efaf35c7405c79d4e2f5a28fbe08249dfe1cd36c8523d60e33",
+      "size": 10763
+    },
+    {
+      "path": "frontend/tests/model.test.js",
+      "sha256": "fb8730a1d5c5f7a7883eb48328b24a33eb9f4da33378827493416171e5718557",
+      "size": 3400
+    },
+    {
+      "path": "frontend/vite.config.js",
+      "sha256": "83dcc937c97938ec4ed61c405c6e85956398572c23498f59af34da01878ef976",
+      "size": 331
+    },
+    {
+      "path": "sample-data/cards/cards.jsonl",
+      "sha256": "f0ee278409fc214938adfb4d303470658d2abb3498486ee73def86d4bebb3c1c",
+      "size": 825
+    },
+    {
+      "path": "sample-data/cards/compile-manifests.jsonl",
+      "sha256": "5caa450f1303c7b035fe134f1439c24aa0fb0caca29951a35159c2cb2b27caa9",
+      "size": 435
+    },
+    {
+      "path": "sample-data/cards/coverage.jsonl",
+      "sha256": "42d333f1bc759c9484872874bed46c18743c22ed8acd241ccf04f005cd104dbf",
+      "size": 328
+    },
+    {
+      "path": "sample-data/cards/day/2026/2026-01-02.md",
+      "sha256": "6ce1571738e94bae14e762e9d93248ca58df7c5f93ef71d7485d59e4425cb9f5",
+      "size": 294
+    },
+    {
+      "path": "sample-data/cards/week/2025/2025-12-29--2026-01-04.md",
+      "sha256": "0a747af5ed52aa9613a9f17149ded72d326927afd63ef1271b1b7e316557bc37",
+      "size": 209
+    },
+    {
+      "path": "sample-data/folds/2026-01-02.md",
+      "sha256": "2d360d696151eb31d36d4710ff279fd37fffe9672f3cc2e33772483aa2c9ccf4",
+      "size": 212
+    },
+    {
+      "path": "sample-data/semantic/claims.jsonl",
+      "sha256": "cba1f01b2131709f6ebd09691e2d712e0877fd815c5340d41d797aa8a6ae73d6",
+      "size": 1307
+    },
+    {
+      "path": "sample-data/semantic/compile-manifests.jsonl",
+      "sha256": "6b27fe0a826d27effe03af8bc546d2e9dece11f2a6732f57fa8a2d371b384b7c",
+      "size": 1064
+    },
+    {
+      "path": "sample-data/semantic/entities.json",
+      "sha256": "db4babd7cc3a885f4894aed13bd499ac6b2b0b4296dbf1510d42b80d7736b743",
+      "size": 143
+    },
+    {
+      "path": "sample-data/semantic/events.jsonl",
+      "sha256": "1a5d4c69c3afb8bc4ec2634bbc1bcecbe720ef9e390540ef89b33622fd1e50a2",
+      "size": 534
+    },
+    {
+      "path": "sample-data/semantic/manifest.json",
+      "sha256": "12b831b117be7d925206e0925aed183981b833486399f8af298d7f171f40aa92",
+      "size": 79
+    },
+    {
+      "path": "sample-data/semantic/packet-reviews.jsonl",
+      "sha256": "f0184ae1dcaa72b82b7818fc36725fa10f2a19a43e8c35cc123e1125a2fbec8d",
+      "size": 188
+    },
+    {
+      "path": "sample-data/semantic/packets.jsonl",
+      "sha256": "a1b6c4fcbd901893226f1aabe990d919cf62ad9e6d2af0c101050d0cd765a031",
+      "size": 200
+    },
+    {
+      "path": "sample-data/semantic/patches.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "sample-data/semantic/projections.jsonl",
+      "sha256": "c0dd34548f39668a0b05ca7d6233fb9a0598ff196c13efe7b611737d6e3f27cf",
+      "size": 933
+    }
+  ],
+  "license": "Apache-2.0",
+  "manifest_sha256": "f7f7d254e8cacb84f63712c8b00d6f6bf5fc00c77a98ffdd2223a76417904929",
+  "schema_version": 1
+}

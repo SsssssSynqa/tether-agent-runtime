@@ -1,0 +1,58 @@
+{
+  "agent": {
+    "id": "example-agent",
+    "displayName": "Example Agent"
+  },
+  "owner": {
+    "entityId": "example-owner",
+    "displayName": "Example Owner",
+    "telegramUserIds": []
+  },
+  "persona": {
+    "policyFile": "./persona-policy.private.md"
+  },
+  "entities": [
+    {
+      "entityId": "example-owner",
+      "canonicalDisplayName": "Example Owner",
+      "type": "person"
+    },
+    {
+      "entityId": "example-agent",
+      "canonicalDisplayName": "Example Agent",
+      "type": "ai"
+    }
+  ],
+  "addressPolicy": {
+    "canonicalOwnerName": "Example Owner",
+    "disallowedOwnerNames": [],
+    "preservedEntityNames": []
+  },
+  "storage": {
+    "root": "../private-tether-data"
+  },
+  "runtime": {
+    "allowInitialSessionCreate": true,
+    "rawTailMessages": 40,
+    "summaryLimit": 20,
+    "cardLimit": 20
+  },
+  "telegram": {
+    "enabled": false,
+    "tokenEnv": "TELEGRAM_BOT_TOKEN",
+    "allowedGroups": {},
+    "noReplyGroupIds": [],
+    "rateLimitedGroupIds": [],
+    "rateLimitStateDir": "../private-tether-data/telegram-rate-limit"
+  },
+  "providers": [
+    {
+      "id": "example-primary",
+      "label": "Example OpenAI-compatible API",
+      "adapter": "openai-compatible",
+      "baseUrl": "https://api.example.invalid/v1/chat/completions",
+      "apiKeyEnv": "PRIMARY_API_KEY",
+      "model": "example-model"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "entities": [
+    {
+      "entityId": "owner",
+      "canonicalDisplayName": "Owner",
+      "type": "person"
+    },
+    {
+      "entityId": "agent",
+      "canonicalDisplayName": "Agent",
+      "type": "ai"
+    }
+  ],
+  "rawMessages": [
+    {
+      "messageId": "synthetic:1",
+      "senderEntityId": "owner",
+      "text": "Please remember the blue notebook.",
+      "textSha256": "b609b586a911a8c8e5e05f2668e1c0ab82fd62be75974c58206c4b0732f33fb8"
+    }
+  ],
+  "claims": [
+    {
+      "claimId": "claim:synthetic:1",
+      "kind": "commitment",
+      "speakerEntityId": "owner",
+      "subjectEntityId": "owner",
+      "predicate": "requests_memory",
+      "objectEntityId": null,
+      "objectLiteral": "the blue notebook",
+      "targetEntityId": "agent",
+      "polarity": "positive",
+      "modality": "requested",
+      "epistemicStatus": "explicit",
+      "verificationStatus": "supported",
+      "temporalQualifier": null,
+      "numericQualifiers": [],
+      "evidence": [
+        {
+          "messageId": "synthetic:1",
+          "offsetUnit": "unicode_code_point",
+          "start": 0,
+          "end": 34,
+          "quote": "Please remember the blue notebook.",
+          "textSha256": "b609b586a911a8c8e5e05f2668e1c0ab82fd62be75974c58206c4b0732f33fb8"
+        }
+      ]
+    }
+  ],
+  "events": [],
+  "projections": []
+}

@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible defect using synthetic data.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, real conversations, user or chat identifiers, private paths, memory databases, or production logs. Report security and privacy vulnerabilities privately through SECURITY.md.
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: What happened? Use synthetic names and data.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal synthetic reproduction
+      description: Include the smallest offline fixture or test that demonstrates the defect.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: continuity
+    attributes:
+      label: Continuity impact
+      options:
+        - No known identity or memory impact
+        - Session resume or replacement risk
+        - Causal duplication or replay risk
+        - Attribution, entity, or correction risk
+        - Raw or derived memory integrity risk
+        - Unknown
+    validations:
+      required: true
+
+  - type: input
+    id: revision
+    attributes:
+      label: Tether revision or version
+      placeholder: commit or release tag
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Publication check
+      options:
+        - label: I replaced all real content, credentials, identifiers, paths, endpoints, and logs with synthetic values.
+          required: true
+        - label: This is not a security vulnerability requiring private disclosure.
+          required: true

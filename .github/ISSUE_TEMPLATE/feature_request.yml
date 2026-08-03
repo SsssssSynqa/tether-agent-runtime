@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose an additive channel, provider, memory, or runtime capability.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired user-visible outcome
+      description: Describe the behavior, not only an implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Invariants that must be preserved
+      description: Address one-session continuity, raw authority, causal replay, attribution, rebuildability, and privacy where relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Scope and boundaries
+      description: What is required, negotiable, explicitly excluded, or still unknown?
+    validations:
+      required: true
+
+  - type: textarea
+    id: recovery
+    attributes:
+      label: Failure and recovery behavior
+      description: What should happen after restart, timeout, duplicate ingress, corrupt data, or failed resume?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: synthetic
+    attributes:
+      label: Data safety
+      options:
+        - label: Examples in this request are wholly synthetic and contain no private deployment information.
+          required: true

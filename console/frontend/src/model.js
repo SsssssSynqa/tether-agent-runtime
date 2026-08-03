@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: Apache-2.0
+import { newestFirst, recordsForLayer } from './tether-memory-policy.js'
+
+export const PAGES = ['overview', 'cards', 'semantic', 'context', 'integrity']
+export const CARD_LAYERS = ['day', 'week', 'fold']
+export const SEMANTIC_KINDS = ['claims', 'events', 'projections', 'reviews']
+
+export function cardsForLayer(cards = [], layer = 'day') {
+  return newestFirst(recordsForLayer(cards, layer))
+}
+
+export function semanticItems(data = {}, kind = 'claims') {
+  return Array.isArray(data[kind]) ? data[kind] : []
+}
+
+export function contextBlocks(context = {}) {
+  return Array.isArray(context.blocks) ? context.blocks : []
+}
+
+export function recordIdentity(record = {}, kind = '') {
+  const fields = {
+    claims: ['claimId', 'content'],
+    events: ['eventId', 'title'],
+    projections: ['projectionId', 'title'],
+    reviews: ['reviewId', 'packetId'],
+  }[kind] || ['id', 'title']
+  return fields.map((field) => record[field]).find(Boolean) || 'Unnamed record'
+}
+
+export function statusTone(status = {}) {
+  if (status.integrity?.healthy === false) return 'attention'
+  if (status.configured && Object.values(status.configured).some((item) => !item.exists)) return 'attention'
+  return 'healthy'
+}

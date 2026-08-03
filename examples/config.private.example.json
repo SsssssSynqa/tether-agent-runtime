@@ -1,0 +1,15 @@
+{
+  "storage": {
+    "root": "../private-tether-data"
+  },
+  "providers": [
+    {
+      "id": "example-primary",
+      "label": "Local operator override",
+      "adapter": "openai-compatible",
+      "baseUrl": "https://api.example.invalid/v1/chat/completions",
+      "apiKeyEnv": "PRIMARY_API_KEY",
+      "model": "replace-with-provider-model"
+    }
+  ]
+}
