@@ -12,6 +12,21 @@
 
 Do not infer continuity from a running process, a green health endpoint, or a provider response. The stored session ID, resume result, and append-only history must agree.
 
+## Optional macOS launchd supervision
+
+[`examples/com.example.tether.plist`](../examples/com.example.tether.plist) is a
+synthetic LaunchAgent skeleton for operators who choose macOS process
+supervision. Copy it outside the repository, replace every placeholder with an
+absolute local path, validate it with `plutil`, and verify a foreground startup
+before loading it. Keep the runtime config, data root, and logs outside the
+source checkout.
+
+The plist intentionally contains no credential values. Inject provider and
+Telegram secrets through an operator-controlled credential wrapper or another
+local secret mechanism; do not paste tokens into the plist or commit a populated
+copy. A process supervisor restarts the same storage root and session anchor—it
+must never create a second per-channel runtime.
+
 ## Backup set
 
 Back up at minimum:

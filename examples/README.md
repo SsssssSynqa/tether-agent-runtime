@@ -8,6 +8,7 @@ Everything in this directory is fabricated for documentation and offline testing
 - [`.env.example`](.env.example) lists environment-variable names with empty values.
 - [`config.private.example.json`](config.private.example.json) demonstrates the ignored local overlay used for secrets-adjacent and machine-specific settings. It contains no secret.
 - [`persona-policy.example.md`](persona-policy.example.md) is a deliberately generic continuity policy.
+- [`com.example.tether.plist`](com.example.tether.plist) is a synthetic macOS LaunchAgent skeleton. Replace every placeholder locally and never put credential values in the plist.
 
 The root [`config.example.json`](../config.example.json) is the canonical runtime schema example. These files favor explanation and safe copying.
 
