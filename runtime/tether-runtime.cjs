@@ -9,6 +9,7 @@ class TetherRuntime {
     memory,
     provider,
     maintenanceSupervisor = null,
+    healthReporter = null,
     causalJournal = null,
     personaPrompt = '',
     rawTailMessages = 40,
@@ -23,6 +24,7 @@ class TetherRuntime {
     this.memory = memory;
     this.provider = provider;
     this.maintenanceSupervisor = maintenanceSupervisor;
+    this.healthReporter = healthReporter;
     this.causal = causalJournal || new CausalJournal({ directory: memory.directory });
     this.personaPrompt = String(personaPrompt || '');
     this.rawTailMessages = rawTailMessages;
@@ -274,6 +276,7 @@ class TetherRuntime {
 
   async handle(channel, message) {
     if (!message?.messageId) throw new Error('Channel message requires a stable messageId');
+    this.healthReporter?.noteActivity?.({ channelId: channel.id });
     if (message.respond === false) return this._recordObservation(channel, message);
     const state = await this.session.open({ allowCreate: Boolean(message.allowCreateSession) });
     const prepared = this.causal.prepareInput({

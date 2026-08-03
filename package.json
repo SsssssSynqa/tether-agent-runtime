@@ -11,7 +11,9 @@
   "bin": {
     "tether": "./bin/tether.cjs",
     "tether-memory": "./bin/tether-memory.cjs",
-    "tether-tools": "./bin/tether-tools.cjs"
+    "tether-tools": "./bin/tether-tools.cjs",
+    "tether-ops": "./bin/tether-ops.cjs",
+    "tether-supervisor": "./bin/tether-supervisor.cjs"
   },
   "scripts": {
     "start": "node ./bin/tether.cjs ./config.json",
@@ -19,6 +21,9 @@
     "memory:rebuild": "node ./bin/tether-memory.cjs rebuild-semantic ./config.json",
     "memory:backfill-vectors": "node ./bin/tether-memory.cjs backfill-vectors ./config.json",
     "tools:approvals": "node ./bin/tether-tools.cjs approvals ./config.json",
+    "ops:status": "node ./bin/tether-ops.cjs status ./config.json",
+    "ops:dead-letters": "node ./bin/tether-ops.cjs dead-letters ./config.json",
+    "supervise": "node ./bin/tether-supervisor.cjs ./config.json",
     "test": "node ./test/offline.cjs && node ./test/layered-runtime.cjs",
     "verify:export": "node ./scripts/verify-export-lock.cjs"
   }

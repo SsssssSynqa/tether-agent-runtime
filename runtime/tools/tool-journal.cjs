@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { acquireInstanceLock } = require('../instance-lock.cjs');
 
 const TRANSACTION_EVENTS = new Set([
   'begin',
@@ -43,13 +44,22 @@ class ToolJournal {
     this.transactions = new Map();
     this.operations = new Map();
     this.approvals = new Map();
+    this.loadedSize = 0;
     this._load();
   }
 
-  _load() {
+  _load({ reset = false } = {}) {
+    if (reset) {
+      this.transactions.clear();
+      this.operations.clear();
+      this.approvals.clear();
+    }
     let raw = '';
     try { raw = fs.readFileSync(this.filePath, 'utf8'); } catch (error) {
-      if (error.code === 'ENOENT') return;
+      if (error.code === 'ENOENT') {
+        this.loadedSize = 0;
+        return;
+      }
       throw error;
     }
     for (const [index, line] of raw.split('\n').entries()) {
@@ -103,6 +113,29 @@ class ToolJournal {
         throw failure;
       }
     }
+    this.loadedSize = Buffer.byteLength(raw, 'utf8');
+  }
+
+  refresh() {
+    let size = 0;
+    try { size = fs.statSync(this.filePath).size; } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    const changed = size !== this.loadedSize;
+    if (changed) this._load({ reset: true });
+    return changed;
+  }
+
+  _withMutationLock(operation) {
+    const lock = acquireInstanceLock(path.join(
+      this.directory,
+      '..',
+      '.tether-tool-journal.lock',
+    ));
+    try {
+      this.refresh();
+      return operation();
+    } finally { lock.release(); }
   }
 
   _invalidTransactionAppend(events, record) {
@@ -157,6 +190,7 @@ class ToolJournal {
       at: this.clock(),
     };
     appendFsynced(this.filePath, full);
+    this.loadedSize += Buffer.byteLength(`${JSON.stringify(full)}\n`, 'utf8');
     if (full.recordType === 'transaction') {
       const key = String(full.causalId);
       if (!this.transactions.has(key)) this.transactions.set(key, []);
@@ -170,45 +204,51 @@ class ToolJournal {
   }
 
   transactionEvents(causalId) {
+    this.refresh();
     return structuredClone(this.transactions.get(String(causalId || '')) || []);
   }
 
   beginTransaction(causalId, requestHash) {
-    const key = String(causalId || '');
-    if (!key || !requestHash) throw new Error('Tool transaction requires causalId and requestHash');
-    const events = this.transactions.get(key) || [];
-    const begin = events.find((record) => record.event === 'begin');
-    if (begin) {
-      if (begin.requestHash !== String(requestHash)) {
-        const error = new Error('Tool transaction request does not match its durable beginning');
-        error.code = 'TETHER_TOOL_TRANSACTION_MISMATCH';
-        throw error;
+    return this._withMutationLock(() => {
+      const key = String(causalId || '');
+      if (!key || !requestHash) throw new Error('Tool transaction requires causalId and requestHash');
+      const events = this.transactions.get(key) || [];
+      const begin = events.find((record) => record.event === 'begin');
+      if (begin) {
+        if (begin.requestHash !== String(requestHash)) {
+          const error = new Error('Tool transaction request does not match its durable beginning');
+          error.code = 'TETHER_TOOL_TRANSACTION_MISMATCH';
+          throw error;
+        }
+        return structuredClone(begin);
       }
-      return structuredClone(begin);
-    }
-    return this._append({
-      recordType: 'transaction',
-      event: 'begin',
-      causalId: key,
-      requestHash: String(requestHash),
+      return this._append({
+        recordType: 'transaction',
+        event: 'begin',
+        causalId: key,
+        requestHash: String(requestHash),
+      });
     });
   }
 
   recordTransaction(causalId, event, details = {}) {
-    const key = String(causalId || '');
-    if (!key || !event) throw new Error('Tool transaction event requires causalId and event');
-    const record = {
-      ...structuredClone(details),
-      recordType: 'transaction',
-      event: String(event),
-      causalId: key,
-    };
-    const invalid = this._invalidTransactionAppend(this.transactions.get(key) || [], record);
-    if (invalid) throw new Error(`Invalid tool transaction event: ${invalid}`);
-    return this._append(record);
+    return this._withMutationLock(() => {
+      const key = String(causalId || '');
+      if (!key || !event) throw new Error('Tool transaction event requires causalId and event');
+      const record = {
+        ...structuredClone(details),
+        recordType: 'transaction',
+        event: String(event),
+        causalId: key,
+      };
+      const invalid = this._invalidTransactionAppend(this.transactions.get(key) || [], record);
+      if (invalid) throw new Error(`Invalid tool transaction event: ${invalid}`);
+      return this._append(record);
+    });
   }
 
   canResume(causalId) {
+    this.refresh();
     const events = this.transactions.get(String(causalId || '')) || [];
     const latest = events.at(-1);
     return Boolean(latest && [
@@ -221,97 +261,108 @@ class ToolJournal {
   }
 
   operation(operationKey) {
+    this.refresh();
     const record = this.operations.get(String(operationKey || ''));
     return record ? structuredClone(record) : null;
   }
 
   prepareOperation({ operationKey, fingerprint, causalId, toolCallId, toolName, details = {} }) {
-    const key = String(operationKey || '');
-    if (!key || !fingerprint || !causalId || !toolName) {
-      throw new Error('Tool operation preparation is incomplete');
-    }
-    const existing = this.operations.get(key);
-    if (existing) {
-      if (existing.fingerprint !== String(fingerprint)) {
-        const error = new Error('Tool operation key was reused with different arguments');
-        error.code = 'TETHER_TOOL_OPERATION_MISMATCH';
-        throw error;
+    return this._withMutationLock(() => {
+      const key = String(operationKey || '');
+      if (!key || !fingerprint || !causalId || !toolName) {
+        throw new Error('Tool operation preparation is incomplete');
       }
-      return structuredClone(existing);
-    }
-    return this._append({
-      recordType: 'operation',
-      state: 'prepared',
-      operationKey: key,
-      fingerprint: String(fingerprint),
-      causalId: String(causalId),
-      toolCallId: String(toolCallId || ''),
-      toolName: String(toolName),
-      details: structuredClone(details),
+      const existing = this.operations.get(key);
+      if (existing) {
+        if (existing.fingerprint !== String(fingerprint)) {
+          const error = new Error('Tool operation key was reused with different arguments');
+          error.code = 'TETHER_TOOL_OPERATION_MISMATCH';
+          throw error;
+        }
+        return structuredClone(existing);
+      }
+      return this._append({
+        recordType: 'operation',
+        state: 'prepared',
+        operationKey: key,
+        fingerprint: String(fingerprint),
+        causalId: String(causalId),
+        toolCallId: String(toolCallId || ''),
+        toolName: String(toolName),
+        details: structuredClone(details),
+      });
     });
   }
 
   commitOperation(operationKey, result, { recovered = false } = {}) {
-    const key = String(operationKey || '');
-    const existing = this.operations.get(key);
-    if (!existing) throw new Error(`Tool operation ${key} was not prepared`);
-    if (existing.state === 'committed') return structuredClone(existing);
-    return this._append({
-      ...existing,
-      recordType: 'operation',
-      state: 'committed',
-      operationKey: key,
-      result: structuredClone(result),
-      recovered: recovered === true,
+    return this._withMutationLock(() => {
+      const key = String(operationKey || '');
+      const existing = this.operations.get(key);
+      if (!existing) throw new Error(`Tool operation ${key} was not prepared`);
+      if (existing.state === 'committed') return structuredClone(existing);
+      return this._append({
+        ...existing,
+        recordType: 'operation',
+        state: 'committed',
+        operationKey: key,
+        result: structuredClone(result),
+        recovered: recovered === true,
+      });
     });
   }
 
   requestApproval({ fingerprint, toolName, scope, summary }) {
-    const normalizedFingerprint = String(fingerprint || '');
-    if (!normalizedFingerprint) throw new Error('Tool approval requires an operation fingerprint');
-    const approvalId = `approval:${sha256(`v1\0${normalizedFingerprint}`).slice(0, 24)}`;
-    const existing = this.approvals.get(approvalId);
-    if (existing) return structuredClone(existing);
-    return this._append({
-      recordType: 'approval',
-      state: 'pending',
-      approvalId,
-      fingerprint: normalizedFingerprint,
-      toolName: String(toolName || ''),
-      scope: String(scope || 'default'),
-      summary: structuredClone(summary || {}),
+    return this._withMutationLock(() => {
+      const normalizedFingerprint = String(fingerprint || '');
+      if (!normalizedFingerprint) throw new Error('Tool approval requires an operation fingerprint');
+      const approvalId = `approval:${sha256(`v1\0${normalizedFingerprint}`).slice(0, 24)}`;
+      const existing = this.approvals.get(approvalId);
+      if (existing) return structuredClone(existing);
+      return this._append({
+        recordType: 'approval',
+        state: 'pending',
+        approvalId,
+        fingerprint: normalizedFingerprint,
+        toolName: String(toolName || ''),
+        scope: String(scope || 'default'),
+        summary: structuredClone(summary || {}),
+      });
     });
   }
 
   resolveApproval(approvalId, state, { actor = 'operator', reason = null } = {}) {
-    const id = String(approvalId || '');
-    const normalizedState = String(state || '');
-    if (!['approved', 'denied'].includes(normalizedState)) {
-      throw new Error('Tool approval resolution must be approved or denied');
-    }
-    const existing = this.approvals.get(id);
-    if (!existing) throw new Error(`Unknown tool approval: ${id}`);
-    if (existing.state === normalizedState) return structuredClone(existing);
-    if (existing.state !== 'pending') {
-      throw new Error(`Tool approval ${id} is already ${existing.state}`);
-    }
-    return this._append({
-      ...existing,
-      recordType: 'approval',
-      state: normalizedState,
-      approvalId: id,
-      resolvedBy: String(actor || 'operator'),
-      reason: reason == null ? null : String(reason).slice(0, 500),
+    return this._withMutationLock(() => {
+      const id = String(approvalId || '');
+      const normalizedState = String(state || '');
+      if (!['approved', 'denied'].includes(normalizedState)) {
+        throw new Error('Tool approval resolution must be approved or denied');
+      }
+      const existing = this.approvals.get(id);
+      if (!existing) throw new Error(`Unknown tool approval: ${id}`);
+      if (existing.state === normalizedState) return structuredClone(existing);
+      if (existing.state !== 'pending') {
+        throw new Error(`Tool approval ${id} is already ${existing.state}`);
+      }
+      return this._append({
+        ...existing,
+        recordType: 'approval',
+        state: normalizedState,
+        approvalId: id,
+        resolvedBy: String(actor || 'operator'),
+        reason: reason == null ? null : String(reason).slice(0, 500),
+      });
     });
   }
 
   approvalForFingerprint(fingerprint) {
+    this.refresh();
     const approvalId = `approval:${sha256(`v1\0${String(fingerprint || '')}`).slice(0, 24)}`;
     const record = this.approvals.get(approvalId);
     return record ? structuredClone(record) : null;
   }
 
   listApprovals({ state = null } = {}) {
+    this.refresh();
     return [...this.approvals.values()]
       .filter((record) => !state || record.state === state)
       .sort((left, right) => String(left.at).localeCompare(String(right.at)))
@@ -319,6 +370,7 @@ class ToolJournal {
   }
 
   listOperations({ limit = 100 } = {}) {
+    this.refresh();
     return [...this.operations.values()]
       .sort((left, right) => String(right.at).localeCompare(String(left.at)))
       .slice(0, Math.max(1, Number(limit) || 100))

@@ -120,6 +120,54 @@ function validateConfig(config) {
       errors.push(`telegram.${field} must be a positive number`);
     }
   }
+  const supervision = config.supervision || {};
+  if (config.supervision != null && !isObject(config.supervision)) {
+    errors.push('supervision must be an object');
+  }
+  for (const field of [
+    'heartbeatIntervalMs',
+    'monitorIntervalMs',
+    'heartbeatStaleMs',
+    'readyTimeoutMs',
+    'restartBaseMs',
+    'restartMaxMs',
+    'restartWindowMs',
+    'maxRestartsPerWindow',
+    'shutdownGraceMs',
+  ]) {
+    if (
+      supervision[field] != null
+      && (!Number.isSafeInteger(Number(supervision[field])) || Number(supervision[field]) <= 0)
+    ) {
+      errors.push(`supervision.${field} must be a positive integer`);
+    }
+  }
+  const effectiveSupervision = {
+    heartbeatIntervalMs: Number(supervision.heartbeatIntervalMs ?? 5_000),
+    monitorIntervalMs: Number(supervision.monitorIntervalMs ?? 5_000),
+    heartbeatStaleMs: Number(supervision.heartbeatStaleMs ?? 30_000),
+    readyTimeoutMs: Number(supervision.readyTimeoutMs ?? 60_000),
+    restartBaseMs: Number(supervision.restartBaseMs ?? 1_000),
+    restartMaxMs: Number(supervision.restartMaxMs ?? 60_000),
+  };
+  if (
+    effectiveSupervision.heartbeatStaleMs
+      < effectiveSupervision.heartbeatIntervalMs + effectiveSupervision.monitorIntervalMs
+  ) {
+    errors.push(
+      'supervision.heartbeatStaleMs must be at least heartbeatIntervalMs + monitorIntervalMs',
+    );
+  }
+  if (
+    effectiveSupervision.readyTimeoutMs <= effectiveSupervision.heartbeatIntervalMs
+  ) {
+    errors.push('supervision.readyTimeoutMs must exceed heartbeatIntervalMs');
+  }
+  if (
+    effectiveSupervision.restartMaxMs < effectiveSupervision.restartBaseMs
+  ) {
+    errors.push('supervision.restartMaxMs must not be smaller than restartBaseMs');
+  }
   if (
     config.telegram?.groupRepairAttempts != null
     && (!Number.isSafeInteger(Number(config.telegram.groupRepairAttempts))

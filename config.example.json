@@ -31,6 +31,17 @@
     "maintenanceErrorBaseDelayMs": 30000,
     "maintenanceErrorMaxDelayMs": 3600000
   },
+  "supervision": {
+    "heartbeatIntervalMs": 5000,
+    "monitorIntervalMs": 5000,
+    "heartbeatStaleMs": 30000,
+    "readyTimeoutMs": 60000,
+    "restartBaseMs": 1000,
+    "restartMaxMs": 60000,
+    "restartWindowMs": 300000,
+    "maxRestartsPerWindow": 8,
+    "shutdownGraceMs": 15000
+  },
   "tools": {
     "enabled": true,
     "maxIterations": 5,

@@ -7,6 +7,7 @@ const { loadTetherConfig } = require('../runtime/config-loader.cjs');
 const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
 const { LayeredMemory } = require('../runtime/memory/layered-memory.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
+const { ensureRuntimeStorageSchema } = require('../runtime/operations/storage-schema.cjs');
 
 function configuredProviders(config) {
   return config.providers
@@ -58,6 +59,7 @@ async function runMemoryCommand({ command, configPath = './config.json' } = {}) 
   const lock = acquireInstanceLock(path.join(config.storage.root, '.tether-instance.lock'));
   let memory = null;
   try {
+    ensureRuntimeStorageSchema(config.storage.root, { agentId: config.agent.id });
     const provider = createOpenAICompatibleProvider({
       providers: configuredProviders(config),
     });

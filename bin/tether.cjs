@@ -25,6 +25,8 @@ const {
 } = require('../runtime/channels/telegram-group.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
 const { createWorkspaceToolRuntime } = require('../runtime/tools/workspace-tools.cjs');
+const { RuntimeHealthReporter } = require('../runtime/operations/health.cjs');
+const { ensureRuntimeStorageSchema } = require('../runtime/operations/storage-schema.cjs');
 
 function durableModule(name) {
   const publicRuntimePath = path.join(__dirname, '..', 'runtime', 'durable', name);
@@ -42,6 +44,7 @@ let telegramChannel = null;
 let telegramDispatcher = null;
 let telegramGroupCoordinator = null;
 let terminalInterface = null;
+let healthReporter = null;
 let resourcesReleased = false;
 
 function diagnosticCode(error) {
@@ -54,6 +57,10 @@ function diagnosticCode(error) {
     case 'TETHER_TOOL_INFERENCE_AMBIGUOUS': return 'TETHER_TOOL_INFERENCE_AMBIGUOUS';
     case 'TETHER_TOOL_APPROVAL_REQUIRED': return 'TETHER_TOOL_APPROVAL_REQUIRED';
     case 'TETHER_TOOL_EFFECT_AMBIGUOUS': return 'TETHER_TOOL_EFFECT_AMBIGUOUS';
+    case 'TETHER_STORAGE_MIGRATION_REQUIRED': return 'TETHER_STORAGE_MIGRATION_REQUIRED';
+    case 'TETHER_STORAGE_SCHEMA_CORRUPT': return 'TETHER_STORAGE_SCHEMA_CORRUPT';
+    case 'TETHER_STORAGE_AGENT_MISMATCH': return 'TETHER_STORAGE_AGENT_MISMATCH';
+    case 'TETHER_STORAGE_VERSION_NEWER': return 'TETHER_STORAGE_VERSION_NEWER';
     case 'TETHER_DELIVERY_AMBIGUOUS': return 'TETHER_DELIVERY_AMBIGUOUS';
     default: return 'TETHER_UNEXPECTED_FAILURE';
   }
@@ -73,6 +80,7 @@ function releaseResources() {
   try { telegramGroupCoordinator?.stop(); } catch (_) { /* shutdown is best effort */ }
   try { terminalInterface?.close(); } catch (_) { /* shutdown is best effort */ }
   try { memoryRuntime?.close(); } catch (_) { /* shutdown is best effort */ }
+  try { healthReporter?.stop(); } catch (_) { /* process shutdown is best effort */ }
   try { instanceLock?.release(); } catch (_) { /* process shutdown is best effort */ }
   maintenanceSupervisor = null;
   telegramChannel = null;
@@ -80,6 +88,7 @@ function releaseResources() {
   telegramGroupCoordinator = null;
   terminalInterface = null;
   memoryRuntime = null;
+  healthReporter = null;
   instanceLock = null;
 }
 
@@ -87,6 +96,25 @@ async function main() {
   const configPath = process.argv[2] || './config.json';
   const config = loadTetherConfig(configPath);
   instanceLock = acquireInstanceLock(path.join(config.storage.root, '.tether-instance.lock'));
+  const storageSchema = ensureRuntimeStorageSchema(config.storage.root, {
+    agentId: config.agent.id,
+  });
+  healthReporter = new RuntimeHealthReporter({
+    filePath: path.join(config.storage.root, 'runtime-health.json'),
+    intervalMs: config.supervision?.heartbeatIntervalMs,
+    onWriteError(error) {
+      console.error(`[tether] health heartbeat failed (${error.code || 'TETHER_HEALTH_WRITE_FAILED'})`);
+      process.exitCode = 1;
+      setImmediate(() => {
+        releaseResources();
+        process.exit(1);
+      });
+    },
+  });
+  healthReporter.start({
+    agentId: config.agent.id,
+    storageSchemaVersion: storageSchema.version,
+  });
   process.once('exit', releaseResources);
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.once(signal, () => {
@@ -148,13 +176,16 @@ async function main() {
   });
   // Bootstrap once at the process boundary.  Channels never race to decide
   // whether they are allowed to create the primary session.
-  await session.open({ allowCreate: config.runtime?.allowInitialSessionCreate === true });
+  const sessionState = await session.open({
+    allowCreate: config.runtime?.allowInitialSessionCreate === true,
+  });
   maintenanceSupervisor = new MemoryMaintenanceSupervisor({
     memory,
     idleIntervalMs: config.runtime?.maintenanceIntervalMs,
     activeDelayMs: config.runtime?.maintenanceActiveDelayMs,
     errorBaseDelayMs: config.runtime?.maintenanceErrorBaseDelayMs,
     errorMaxDelayMs: config.runtime?.maintenanceErrorMaxDelayMs,
+    onState: (record) => healthReporter?.noteMaintenance(record),
   });
   maintenanceSupervisor.start();
   const terminal = createTerminalChannel();
@@ -163,6 +194,7 @@ async function main() {
     memory,
     provider,
     maintenanceSupervisor,
+    healthReporter,
     personaPrompt: config.persona.prompt,
     rawTailMessages: config.runtime?.rawTailMessages,
     summaryLimit: config.runtime?.summaryLimit,
@@ -231,14 +263,18 @@ async function main() {
     await dispatcher.replayAll();
     dispatcher.start();
     telegram.start().catch((error) => {
+      healthReporter?.fatal(error);
       reportFailure('telegram', error);
-      process.exitCode = 1;
+      releaseResources();
+      process.exit(1);
     });
   }
   terminalInterface = terminal.start();
+  healthReporter.ready({ sessionId: sessionState.sessionId });
 }
 
 main().catch((error) => {
+  healthReporter?.fatal(error);
   releaseResources();
   reportFailure('startup', error);
   process.exitCode = 1;

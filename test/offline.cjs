@@ -2,6 +2,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -38,6 +39,27 @@ const {
   canonicalJson,
   createWorkspaceToolRuntime,
 } = require('../runtime/tools/workspace-tools.cjs');
+const {
+  createBackup,
+  restoreBackup,
+  verifyBackup,
+} = require('../runtime/operations/backup.cjs');
+const {
+  RuntimeHealthReporter,
+  evaluateRuntimeHealth,
+  readRuntimeHealth,
+} = require('../runtime/operations/health.cjs');
+const {
+  CURRENT_STORAGE_VERSION,
+  ensureRuntimeStorageSchema,
+  inspectStorageSchema,
+  migrateStorageSchema,
+} = require('../runtime/operations/storage-schema.cjs');
+const {
+  RestartBudget,
+  TetherSupervisor,
+  restartDelay,
+} = require('../runtime/operations/supervisor.cjs');
 const { validateMemoryBundle } = loadSharedMemoryModule('semantic-memory-validators.js');
 const { SemanticMemoryStore } = loadSharedMemoryModule('semantic-memory-store.js');
 const {
@@ -85,6 +107,7 @@ const { findStaleManagedPaths } = require('../scripts/export-public-snapshot.cjs
 const { verifyFileLock } = require('../scripts/verify-export-lock.cjs');
 const { usage: memoryCommandUsage } = require('../bin/tether-memory.cjs');
 const { usage: toolsCommandUsage } = require('../bin/tether-tools.cjs');
+const { runOpsCommand, usage: opsCommandUsage } = require('../bin/tether-ops.cjs');
 
 const { normalizeCardUserAddress } = loadSharedMemoryModule('memory-card-address.js');
 const { cardMarkdownPath } = loadSharedMemoryModule('memory-card-files.js');
@@ -202,6 +225,8 @@ async function main() {
     assert.equal(exampleConfig.tools.workspaceRoots[0].id, 'workspace');
     assert.equal(path.isAbsolute(exampleConfig.tools.workspaceRoots[0].path), true);
     assert.match(toolsCommandUsage(), /tether-tools approve/);
+    assert.match(opsCommandUsage(), /tether-ops backup/);
+    assert.equal(exampleConfig.supervision.heartbeatStaleMs, 30000);
     assert.throws(
       () => validateConfig({
         ...exampleConfig,
@@ -352,6 +377,30 @@ async function main() {
         providers: [providerConfig()],
       }),
       /stable lowercase identifier|must be allow, approval, or deny/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        supervision: { heartbeatIntervalMs: 5000, heartbeatStaleMs: 5000 },
+        providers: [providerConfig()],
+      }),
+      /heartbeatStaleMs must be at least/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        supervision: { heartbeatIntervalMs: 40_000 },
+        providers: [providerConfig()],
+      }),
+      /heartbeatStaleMs must be at least/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        supervision: { restartBaseMs: 2000, restartMaxMs: 1000 },
+        providers: [providerConfig()],
+      }),
+      /restartMaxMs must not be smaller/,
     );
     const headerEnvConfigPath = path.join(root, 'header-env-config.json');
     fs.writeFileSync(headerEnvConfigPath, JSON.stringify({
@@ -1764,13 +1813,17 @@ async function main() {
       );
     } catch (error) { secondApprovalError = error; }
     assert.notEqual(secondApprovalError.approvalId, approvalError.approvalId);
-    workspaceTools.journal.resolveApproval(approvalError.approvalId, 'approved');
+    const externalApprovalJournal = new ToolJournal({
+      directory: path.join(toolStateRoot, 'tools'),
+    });
+    externalApprovalJournal.resolveApproval(approvalError.approvalId, 'approved');
     const approvedWrite = await workspaceTools.execute(
       approvalCall,
       { causalId: 'tools:private:1', channelId: 'telegram', owner: true },
     );
     assert.equal(approvedWrite.ok, true);
-    workspaceTools.journal.resolveApproval(secondApprovalError.approvalId, 'denied');
+    externalApprovalJournal.refresh();
+    externalApprovalJournal.resolveApproval(secondApprovalError.approvalId, 'denied');
     const deniedWrite = await workspaceTools.execute(
       { ...approvalCall, id: 'private-write-2' },
       { causalId: 'tools:private:2', channelId: 'telegram', owner: true },
@@ -2238,6 +2291,395 @@ async function main() {
     assert.equal(approvalDuplicate.alreadyDelivered, true);
     assert.equal(approvalRuntimeFetches, 2);
 
+    const schemaRoot = path.join(root, 'storage-schema');
+    const initializedSchema = ensureRuntimeStorageSchema(schemaRoot, { agentId: 'agent' });
+    assert.equal(initializedSchema.status, 'current');
+    assert.equal(initializedSchema.version, CURRENT_STORAGE_VERSION);
+    assert.equal(ensureRuntimeStorageSchema(schemaRoot, { agentId: 'agent' }).status, 'current');
+    assert.throws(
+      () => ensureRuntimeStorageSchema(schemaRoot, { agentId: 'different-agent' }),
+      (error) => error.code === 'TETHER_STORAGE_AGENT_MISMATCH',
+    );
+    const legacySchemaRoot = path.join(root, 'storage-schema-legacy');
+    fs.mkdirSync(legacySchemaRoot, { recursive: true });
+    fs.writeFileSync(path.join(legacySchemaRoot, 'legacy-authority.jsonl'), '{"legacy":true}\n');
+    assert.equal(inspectStorageSchema(legacySchemaRoot).status, 'migration-required');
+    assert.throws(
+      () => ensureRuntimeStorageSchema(legacySchemaRoot, { agentId: 'agent' }),
+      (error) => error.code === 'TETHER_STORAGE_MIGRATION_REQUIRED',
+    );
+    const legacyBytes = fs.readFileSync(path.join(legacySchemaRoot, 'legacy-authority.jsonl'));
+    const migratedSchema = migrateStorageSchema(legacySchemaRoot, { agentId: 'agent' });
+    assert.equal(migratedSchema.status, 'current');
+    assert.equal(migratedSchema.marker.migratedFrom, 0);
+    assert.deepEqual(
+      fs.readFileSync(path.join(legacySchemaRoot, 'legacy-authority.jsonl')),
+      legacyBytes,
+      'v0 adoption must not rewrite existing authority',
+    );
+    const futureSchemaRoot = path.join(root, 'storage-schema-future');
+    fs.mkdirSync(futureSchemaRoot, { recursive: true });
+    fs.writeFileSync(path.join(futureSchemaRoot, 'storage-version.json'), JSON.stringify({
+      format: 'tether-storage', schemaVersion: CURRENT_STORAGE_VERSION + 1,
+    }));
+    assert.throws(
+      () => inspectStorageSchema(futureSchemaRoot),
+      (error) => error.code === 'TETHER_STORAGE_VERSION_NEWER',
+    );
+
+    const backupStorageRoot = path.join(root, 'backup-source');
+    ensureRuntimeStorageSchema(backupStorageRoot, { agentId: 'agent' });
+    const backupMemoryRoot = path.join(backupStorageRoot, 'memory');
+    fs.mkdirSync(backupMemoryRoot, { recursive: true });
+    const backupTranscript = Buffer.from(`${JSON.stringify({
+      type: 'bootstrap',
+      summaryHistory: [],
+      rounds: [],
+    })}\n`);
+    fs.writeFileSync(path.join(backupMemoryRoot, 'transcript.jsonl'), backupTranscript);
+    fs.writeFileSync(path.join(backupMemoryRoot, 'history.json'), JSON.stringify({
+      summaryHistory: [], rounds: [],
+    }));
+    const backupSession = {
+      schemaVersion: 1,
+      agentId: 'agent',
+      sessionId: 'backup-session',
+      createdAt: '2030-01-01T00:00:00.000Z',
+      memoryProof: {
+        schemaVersion: 1,
+        transcriptBytes: backupTranscript.length,
+        transcriptSha256: crypto.createHash('sha256').update(backupTranscript).digest('hex'),
+        memorySourceCount: 0,
+      },
+    };
+    fs.writeFileSync(path.join(backupStorageRoot, 'session.json'), JSON.stringify(backupSession));
+    const backupCausal = new CausalJournal({ directory: backupMemoryRoot });
+    const backupInput = backupCausal.prepareInput({
+      sessionId: 'backup-session',
+      channelId: 'terminal',
+      messageId: 'backup-message',
+      text: 'backup causal record',
+    });
+    backupCausal.markInferenceStarted(backupInput.causalId);
+    backupCausal.commitOutput(backupInput.causalId, { text: 'backed up', providerId: 'offline' });
+    const backupToolJournal = new ToolJournal({ directory: path.join(backupStorageRoot, 'tools') });
+    backupToolJournal.beginTransaction('backup-tool-causal', 'backup-tool-request');
+    backupToolJournal.recordTransaction('backup-tool-causal', 'request-started', {
+      iteration: 0, providerIndex: 0, providerId: 'offline',
+    });
+    backupToolJournal.recordTransaction('backup-tool-causal', 'provider-step', {
+      iteration: 0,
+      providerIndex: 0,
+      providerId: 'offline',
+      message: { role: 'assistant', content: 'backup tool final' },
+      result: { text: 'backup tool final', providerId: 'offline' },
+    });
+    backupToolJournal.recordTransaction('backup-tool-causal', 'final', {
+      result: { text: 'backup tool final', providerId: 'offline' },
+    });
+    const backupInbox = new DurableInbox({
+      filePath: path.join(backupStorageRoot, 'telegram-inbox.jsonl'),
+      maxAttempts: 1,
+      log: () => {},
+    });
+    const deadLetterUpdate = {
+      update_id: 501,
+      message: {
+        message_id: 51,
+        text: 'dead letter payload',
+        chat: { id: 5, type: 'private' },
+      },
+    };
+    backupInbox.receive(deadLetterUpdate);
+    backupInbox.markProcessing(501);
+    backupInbox.markFailed(501, new Error('synthetic permanent failure'));
+    assert.equal(backupInbox.status().deadLetters, 1);
+    assert.equal(backupInbox.inventory({ states: 'dead-letter' })[0].textPreview, 'dead letter payload');
+    assert.equal(backupInbox.inspect(501).update.message.text, 'dead letter payload');
+    backupInbox.requeueDeadLetter(501, 'synthetic review approved');
+    backupInbox.markProcessing(501, true);
+    backupInbox.markOperatorPaused(501, new Error('synthetic ambiguous delivery'));
+    assert.equal(backupInbox.status().operatorPaused, 1);
+    backupInbox.append({ state: 'failed', updateId: 999, attempts: 1 });
+    assert.equal(backupInbox.status().unrecoverableOrphans, 1);
+    backupInbox.archiveUnrecoverableOrphan(999, 'synthetic original unavailable');
+    assert.equal(backupInbox.status().unrecoverableOrphans, 0);
+    backupInbox.append({ state: 'dead-letter', updateId: 1000, attempts: 6 });
+    assert.equal(backupInbox.status().unrecoverableOrphans, 1);
+    backupInbox.archiveUnrecoverableOrphan(1000, 'synthetic dead-letter original unavailable');
+    assert.equal(backupInbox.status().unrecoverableOrphans, 0);
+    const attachmentDirectory = path.join(backupStorageRoot, 'telegram-attachments');
+    fs.mkdirSync(attachmentDirectory, { recursive: true });
+    fs.writeFileSync(path.join(attachmentDirectory, 'user-file.json'), Buffer.from([0xff, 0x00, 0x01]));
+    fs.writeFileSync(path.join(backupStorageRoot, 'runtime-health.json'), '{"ephemeral":true}\n');
+    fs.writeFileSync(path.join(backupStorageRoot, 'runtime-health.json.tmp-interrupted'), 'partial');
+    fs.writeFileSync(path.join(backupStorageRoot, '.tether-tool-journal.lock'), JSON.stringify({
+      pid: 999_999_999, token: 'stale-synthetic-token', acquiredAt: '2030-01-01T00:00:00.000Z',
+    }));
+    const backupDestination = path.join(root, 'backups');
+    const createdBackup = createBackup({
+      storageRoot: backupStorageRoot,
+      destinationRoot: backupDestination,
+      agentId: 'agent',
+      clock: () => '2030-01-02T03:04:05.000Z',
+    });
+    assert.equal(createdBackup.manifest.files.some((entry) => entry.path === 'runtime-health.json'), false);
+    assert.equal(createdBackup.manifest.files.some((entry) => entry.path.includes('runtime-health.json.tmp-')), false);
+    assert.equal(createdBackup.manifest.files.some((entry) => entry.path === '.tether-tool-journal.lock'), false);
+    assert.equal(verifyBackup(createdBackup.backupPath).passed, true);
+    assert.throws(
+      () => verifyBackup(createdBackup.backupPath, { expectedAgentId: 'different-agent' }),
+      (error) => error.code === 'TETHER_BACKUP_AGENT_MISMATCH',
+    );
+    fs.writeFileSync(path.join(createdBackup.backupPath, 'unexpected.txt'), 'unexpected');
+    assert.throws(
+      () => verifyBackup(createdBackup.backupPath),
+      (error) => error.code === 'TETHER_BACKUP_EXTRA_FILE',
+    );
+    fs.unlinkSync(path.join(createdBackup.backupPath, 'unexpected.txt'));
+    assert.throws(
+      () => createBackup({
+        storageRoot: backupStorageRoot,
+        destinationRoot: path.join(backupStorageRoot, 'nested-backups'),
+        agentId: 'agent',
+      }),
+      (error) => error.code === 'TETHER_BACKUP_DESTINATION_INVALID',
+    );
+    const backupSourceAlias = path.join(root, 'backup-source-alias');
+    fs.symlinkSync(backupStorageRoot, backupSourceAlias, 'dir');
+    assert.throws(
+      () => createBackup({
+        storageRoot: backupStorageRoot,
+        destinationRoot: path.join(backupSourceAlias, 'physical-nested-backups'),
+        agentId: 'agent',
+      }),
+      (error) => error.code === 'TETHER_BACKUP_DESTINATION_INVALID',
+    );
+    assert.equal(fs.existsSync(path.join(backupStorageRoot, 'physical-nested-backups')), false);
+    const restoredStorageRoot = path.join(root, 'backup-restored');
+    const restoredBackup = restoreBackup({
+      backupPath: createdBackup.backupPath,
+      storageRoot: restoredStorageRoot,
+      clock: () => '2030-01-02T04:05:06.000Z',
+    });
+    assert.equal(restoredBackup.restored, true);
+    assert.equal(inspectStorageSchema(restoredStorageRoot).status, 'current');
+    assert.deepEqual(
+      fs.readFileSync(path.join(restoredStorageRoot, 'session.json')),
+      fs.readFileSync(path.join(backupStorageRoot, 'session.json')),
+    );
+    assert.equal(
+      JSON.parse(fs.readFileSync(
+        path.join(restoredStorageRoot, '.tether-restore-receipt.json'),
+        'utf8',
+      )).state,
+      'completed',
+    );
+    assert.equal(restoreBackup({
+      backupPath: createdBackup.backupPath,
+      storageRoot: restoredStorageRoot,
+    }).replayed, true);
+    const partialRestoreRoot = path.join(root, 'backup-partial-restore');
+    fs.mkdirSync(partialRestoreRoot, { recursive: true });
+    fs.writeFileSync(path.join(partialRestoreRoot, '.tether-restore-receipt.json'), JSON.stringify({
+      schemaVersion: 1,
+      state: 'prepared',
+      backupRootSha256: createdBackup.manifest.rootSha256,
+      preparedAt: '2030-01-02T04:00:00.000Z',
+    }));
+    fs.copyFileSync(
+      path.join(createdBackup.backupPath, 'data', 'storage-version.json'),
+      path.join(partialRestoreRoot, 'storage-version.json'),
+    );
+    const restoreWorkRoot = path.join(partialRestoreRoot, '.tether-restore-work');
+    fs.mkdirSync(restoreWorkRoot);
+    fs.writeFileSync(path.join(
+      restoreWorkRoot,
+      `${crypto.createHash('sha256').update('memory/history.json').digest('hex')}.partial`,
+    ), 'interrupted-copy');
+    assert.equal(restoreBackup({
+      backupPath: createdBackup.backupPath,
+      storageRoot: partialRestoreRoot,
+    }).replayed, false);
+    assert.deepEqual(
+      fs.readFileSync(path.join(partialRestoreRoot, 'session.json')),
+      fs.readFileSync(path.join(backupStorageRoot, 'session.json')),
+    );
+    const opsConfigPath = path.join(root, 'ops-config.json');
+    fs.writeFileSync(opsConfigPath, JSON.stringify({
+      agent: { id: 'agent', displayName: 'Agent' },
+      owner: { entityId: 'owner', displayName: 'Owner' },
+      persona: { inlinePolicy: 'Synthetic operations policy.' },
+      storage: { root: backupStorageRoot },
+      providers: [{
+        id: 'offline',
+        label: 'Offline',
+        adapter: 'openai-compatible',
+        baseUrl: 'http://127.0.0.1:11434/v1/chat/completions',
+        authentication: 'none',
+        model: 'offline-model',
+      }],
+    }));
+    assert.equal(runOpsCommand(['status', opsConfigPath]).storage.status, 'current');
+    assert.equal(runOpsCommand(['dead-letters', opsConfigPath])[0].state, 'operator-paused');
+    assert.equal(runOpsCommand(['inspect', '501', opsConfigPath]).update.update_id, 501);
+    const heldSupervisorLock = acquireInstanceLock(path.join(
+      backupStorageRoot,
+      '.tether-supervisor.lock',
+    ));
+    assert.throws(
+      () => runOpsCommand(['migrate', opsConfigPath]),
+      (error) => error.code === 'TETHER_INSTANCE_LOCKED',
+    );
+    heldSupervisorLock.release();
+    assert.equal(runOpsCommand(['resume', '501', opsConfigPath]).state, 'received');
+    const opsInbox = new DurableInbox({
+      filePath: path.join(backupStorageRoot, 'telegram-inbox.jsonl'),
+      log: () => {},
+    });
+    opsInbox.markProcessing(501, true);
+    opsInbox.markDone(501);
+    assert.throws(
+      () => runOpsCommand(['requeue-done', '501', opsConfigPath]),
+      /Usage:/,
+    );
+    assert.equal(runOpsCommand([
+      'requeue-done', '501', '--confirm-redeliver', opsConfigPath,
+    ]).state, 'received');
+    const tamperedBackupTranscript = path.join(
+      createdBackup.backupPath,
+      'data',
+      'memory',
+      'transcript.jsonl',
+    );
+    fs.appendFileSync(tamperedBackupTranscript, '{"tampered":true}\n');
+    assert.throws(
+      () => verifyBackup(createdBackup.backupPath),
+      (error) => error.code === 'TETHER_BACKUP_HASH_MISMATCH',
+    );
+
+    let healthNow = Date.parse('2030-02-01T00:00:00.000Z');
+    let heartbeatCallback = null;
+    let heartbeatCleared = false;
+    const healthFile = path.join(root, 'health', 'runtime-health.json');
+    const healthReporter = new RuntimeHealthReporter({
+      filePath: healthFile,
+      runId: 'health-run',
+      pid: process.pid,
+      intervalMs: 5_000,
+      clock: () => new Date(healthNow).toISOString(),
+      setIntervalImpl(callback) {
+        heartbeatCallback = callback;
+        return { unref() {} };
+      },
+      clearIntervalImpl() { heartbeatCleared = true; },
+    });
+    healthReporter.start({ agentId: 'agent', storageSchemaVersion: 1 });
+    healthReporter.ready({ sessionId: 'health-session' });
+    healthReporter.noteActivity({ channelId: 'telegram' });
+    healthReporter.noteMaintenance({ state: 'healthy', consecutiveFailures: 0 });
+    heartbeatCallback();
+    const availableHealth = readRuntimeHealth(healthFile);
+    assert.equal(availableHealth.status, 'available');
+    assert.equal(availableHealth.record.sessionAnchorSha256.length, 64);
+    assert.equal(evaluateRuntimeHealth(availableHealth, {
+      expectedRunId: 'health-run',
+      now: healthNow,
+      spawnedAt: healthNow - 1_000,
+      readyTimeoutMs: 60_000,
+      staleAfterMs: 30_000,
+    }).action, 'healthy');
+    healthNow += 31_000;
+    assert.equal(evaluateRuntimeHealth(availableHealth, {
+      expectedRunId: 'health-run',
+      now: healthNow,
+      spawnedAt: healthNow - 32_000,
+      readyTimeoutMs: 60_000,
+      staleAfterMs: 30_000,
+    }).reason, 'heartbeat-stale');
+    healthReporter.fatal(Object.assign(new Error('synthetic fatal'), { code: 'SYNTHETIC_FATAL' }));
+    assert.equal(readRuntimeHealth(healthFile).record.state, 'fatal');
+    healthReporter.stop();
+    assert.equal(heartbeatCleared, true);
+    assert.equal(readRuntimeHealth(healthFile).record.state, 'fatal');
+    assert.equal(evaluateRuntimeHealth({ status: 'missing', record: null }, {
+      now: 100_000,
+      spawnedAt: 0,
+      readyTimeoutMs: 10_000,
+    }).reason, 'health-missing');
+    assert.equal(evaluateRuntimeHealth({
+      status: 'available',
+      record: { state: 'ready', runId: 'old', updatedAt: new Date(100_000).toISOString() },
+    }, {
+      expectedRunId: 'new', now: 100_000, spawnedAt: 0, readyTimeoutMs: 10_000,
+    }).reason, 'health-run-mismatch');
+    assert.equal(restartDelay(1, { baseMs: 1_000, maxMs: 5_000, random: () => 0.5 }), 1_000);
+    assert.equal(restartDelay(20, { baseMs: 1_000, maxMs: 5_000, random: () => 1 }), 5_000);
+    const restartBudget = new RestartBudget({ maxRestarts: 2, windowMs: 10_000 });
+    assert.equal(restartBudget.record(1_000).allowed, true);
+    assert.equal(restartBudget.record(2_000).allowed, true);
+    assert.equal(restartBudget.record(3_000).allowed, false);
+    assert.equal(restartBudget.record(20_000).allowed, true);
+    const { EventEmitter } = require('node:events');
+    const supervisorRoot = path.join(root, 'supervisor-runtime');
+    let supervisorMonitor = null;
+    let spawnedCommand = null;
+    let spawnedArguments = null;
+    let spawnedOptions = null;
+    const childSignals = [];
+    class FakeChild extends EventEmitter {
+      kill(signal) {
+        childSignals.push(signal);
+        queueMicrotask(() => this.emit('exit', 0, signal));
+        return true;
+      }
+    }
+    const tetherSupervisor = new TetherSupervisor({
+      configPath: path.join(root, 'synthetic-supervisor-config.json'),
+      storageRoot: supervisorRoot,
+      settings: {
+        monitorIntervalMs: 5_000,
+        heartbeatStaleMs: 30_000,
+        readyTimeoutMs: 60_000,
+        shutdownGraceMs: 15_000,
+      },
+      spawnImpl(command, args, options) {
+        spawnedCommand = command;
+        spawnedArguments = args;
+        spawnedOptions = options;
+        return new FakeChild();
+      },
+      setIntervalImpl(callback) {
+        supervisorMonitor = callback;
+        return { unref() {} };
+      },
+      clearIntervalImpl() {},
+      setTimeoutImpl(callback, delay) { return { callback, delay, unref() {} }; },
+      clearTimeoutImpl() {},
+      log: () => {},
+      installSignalHandlers: false,
+    });
+    const supervisorCompletion = tetherSupervisor.start();
+    assert.equal(spawnedCommand, process.execPath);
+    assert.equal(spawnedArguments.at(-1), path.join(root, 'synthetic-supervisor-config.json'));
+    assert.equal(spawnedOptions.env.TETHER_SUPERVISOR_RUN_ID, tetherSupervisor.runId);
+    assert.equal(spawnedOptions.env.TETHER_SUPERVISOR_PID, String(process.pid));
+    assert.equal(spawnedOptions.env.TETHER_SUPERVISOR_TOKEN, tetherSupervisor.lock.token);
+    fs.writeFileSync(path.join(supervisorRoot, 'runtime-health.json'), JSON.stringify({
+      schemaVersion: 1,
+      runId: tetherSupervisor.runId,
+      pid: 123,
+      state: 'ready',
+      startedAt: new Date(tetherSupervisor.spawnedAt).toISOString(),
+      updatedAt: new Date(tetherSupervisor.spawnedAt).toISOString(),
+    }));
+    supervisorMonitor();
+    assert.deepEqual(childSignals, []);
+    tetherSupervisor.stop('SIGTERM');
+    await supervisorCompletion;
+    assert.deepEqual(childSignals, ['SIGTERM']);
+    assert.equal(fs.existsSync(path.join(supervisorRoot, '.tether-supervisor.lock')), false);
+
     const lockRoot = path.join(root, 'lock-test');
     fs.mkdirSync(lockRoot);
     fs.writeFileSync(path.join(lockRoot, 'a.txt'), 'alpha');
@@ -2253,6 +2695,7 @@ async function main() {
     );
 
     const scheduled = [];
+    const maintenanceStates = [];
     let supervisorRuns = 0;
     const supervisor = new MemoryMaintenanceSupervisor({
       memory: {
@@ -2270,11 +2713,14 @@ async function main() {
       },
       clearTimer() {},
       log: () => {},
+      onState: (record) => maintenanceStates.push(record.state),
     });
     assert.equal(supervisor.start(), true);
     assert.equal(scheduled.at(-1).delay, 0);
     await supervisor._cycle();
     assert.equal(supervisorRuns, 1);
+    assert(maintenanceStates.includes('running'));
+    assert(maintenanceStates.includes('healthy'));
     assert.equal(scheduled.at(-1).delay, 10);
     assert.equal(resultDidWork({ semantic: { status: 'generated' } }), true);
     assert.equal(supervisor.stop(), true);

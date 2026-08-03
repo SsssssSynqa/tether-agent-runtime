@@ -14,8 +14,18 @@
     },
     {
       "path": "bin/tether-memory.cjs",
-      "sha256": "e4ac65b89e608dba11f274824e51ac87ae209d4a2359885754ac56abfd597921",
-      "size": 3611
+      "sha256": "b06a6cb2cdd41d2f5971b67b2ed7486144a9d0a3c7e9f64ff67f8f2d35c799c6",
+      "size": 3786
+    },
+    {
+      "path": "bin/tether-ops.cjs",
+      "sha256": "bb562a3f919aef6b0c3e9a39ea52e3338698204280183da5e25f565c6ffb112b",
+      "size": 7995
+    },
+    {
+      "path": "bin/tether-supervisor.cjs",
+      "sha256": "f22798647bb49eb3d56cd44fcde87993c02b387b3374fb15c38caa8a56ab53c0",
+      "size": 811
     },
     {
       "path": "bin/tether-tools.cjs",
@@ -24,13 +34,13 @@
     },
     {
       "path": "bin/tether.cjs",
-      "sha256": "ee40844de110ddc6aba607dac568729e97e98aa9b6a4c449071d3ac7586fc6ab",
-      "size": 10456
+      "sha256": "beee7568d43b2e3d9dc1d91ac8001ebd0c71e1bbcdc86f63d5decbdcc04d67cb",
+      "size": 12020
     },
     {
       "path": "config.example.json",
-      "sha256": "c288e54963e1cd7a3cc4a46d189f0628107249be443b513a4173b6fd2c1e723a",
-      "size": 3940
+      "sha256": "48d6140d85f308b6ac50d7b3f8901a7333ed15bcef008467d88167bc11b7aeaf",
+      "size": 4233
     },
     {
       "path": "lib/telegram/group-batcher.cjs",
@@ -49,8 +59,8 @@
     },
     {
       "path": "package.json",
-      "sha256": "ab56a51f4358c7d58f10330fd6b7b8374658602bd1040ec633a00271f17cc54c",
-      "size": 925
+      "sha256": "64d87a3b43e60663ed60b804e827cd715cc48ad187e06d85fa7990c79c0d1c23",
+      "size": 1238
     },
     {
       "path": "persona-policy.example.md",
@@ -59,8 +69,8 @@
     },
     {
       "path": "public-export-manifest.json",
-      "sha256": "6ac9106eab336faed8d812cc7279f4f78516cb84d785c180c785e4308cc58904",
-      "size": 6006
+      "sha256": "8e116783b8eb5b78199d235fb150b2059411f405a4900b50294d7f28da489116",
+      "size": 6594
     },
     {
       "path": "runtime/bridge/group-ingress-sequencer.js",
@@ -104,8 +114,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "2be096640e9c6cedcfdfa07ee40c6efb8fc627f956ca6938bbfc30ade71da60f",
-      "size": 20905
+      "sha256": "8ca2d4a80342422f3e5a388f8982b76c37b31c49e7fac73cfb85c936c0761339",
+      "size": 22615
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",
@@ -119,8 +129,8 @@
     },
     {
       "path": "runtime/durable/durable-inbox.js",
-      "sha256": "5ea6b916c92489bd785b7f4050b72abf2deaeb9c4bfe5bed8ebae679c28a90a3",
-      "size": 20802
+      "sha256": "6e500efda5ebe09ad44ac6d397fd158926ae9b441770e7319e8e027f203c6bbe",
+      "size": 22964
     },
     {
       "path": "runtime/durable/durable-outbound.js",
@@ -164,8 +174,8 @@
     },
     {
       "path": "runtime/memory/maintenance-supervisor.cjs",
-      "sha256": "559d7814b6fd9abfd2304f2ad007d1a338be225a9f4ac21cc96f468b42de1f74",
-      "size": 3636
+      "sha256": "60fd205c6b15ada3891f2d39a0995d45a256f96a175e7910deefb5506ff17de4",
+      "size": 4336
     },
     {
       "path": "runtime/memory/memory-card-address.js",
@@ -248,6 +258,26 @@
       "size": 11458
     },
     {
+      "path": "runtime/operations/backup.cjs",
+      "sha256": "a1e48c74dbf55f37e2ef67f6d661e0dea912602d8e6b809fa43d9599bd0f3576",
+      "size": 25118
+    },
+    {
+      "path": "runtime/operations/health.cjs",
+      "sha256": "e2f3db5a970e5c8a2b170584945fb6c499b3a24d3644db74f5b4c9ef0741d2ee",
+      "size": 6584
+    },
+    {
+      "path": "runtime/operations/storage-schema.cjs",
+      "sha256": "88d1acb171a1afe0ff364ed5734cf1269ee1e10c07ee570d86f285594f702b02",
+      "size": 8691
+    },
+    {
+      "path": "runtime/operations/supervisor.cjs",
+      "sha256": "0cff5e330666ebd502bc914ff6ef51d8a19998f88a0c45947454928bac08b8ca",
+      "size": 8988
+    },
+    {
       "path": "runtime/providers/openai-compatible.cjs",
       "sha256": "3710c0d49de1d77b0b87a6c199e2effa39b9bf11295a1d34d870c0df0536eb4b",
       "size": 21954
@@ -259,13 +289,13 @@
     },
     {
       "path": "runtime/tether-runtime.cjs",
-      "sha256": "378611ca0869ea11809b011818d97c8dbe45de384628379a9f385fd0c9b99206",
-      "size": 16360
+      "sha256": "5c6608f68447096705f5093dff5cafe2f2c4c3242bfc3759b309841fba1c22a2",
+      "size": 16497
     },
     {
       "path": "runtime/tools/tool-journal.cjs",
-      "sha256": "777ab95fb1404b83e27482ac4fbb0e70927b19d2c0c8cf063d2294f3f86b66ab",
-      "size": 12735
+      "sha256": "ac9f7fcf204712f3abae1b0e307b537eaa101f9437ea6a7569031cd1a3a29bdf",
+      "size": 14284
     },
     {
       "path": "runtime/tools/workspace-tools.cjs",
@@ -309,8 +339,8 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "0db1d039937c47112a2508bdc0a74bab62a51406c4ca0f3adeb80d04ad57fcf4",
-      "size": 96355
+      "sha256": "bb36425affb5280fb99ac483aec8d339e29cb5ecd49abd563b8ac22665bd7893",
+      "size": 116008
     }
   ]
 }

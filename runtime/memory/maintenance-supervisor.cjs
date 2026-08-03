@@ -34,6 +34,7 @@ class MemoryMaintenanceSupervisor {
     setTimer = setTimeout,
     clearTimer = clearTimeout,
     log = console.log,
+    onState = () => {},
   } = {}) {
     if (typeof memory?.maintainOne !== 'function') {
       throw new Error('MemoryMaintenanceSupervisor requires memory.maintainOne');
@@ -56,12 +57,19 @@ class MemoryMaintenanceSupervisor {
     this.setTimer = setTimer;
     this.clearTimer = clearTimer;
     this.log = log;
+    this.onState = typeof onState === 'function' ? onState : () => {};
     this.timer = null;
     this.running = false;
     this.started = false;
     this.stopped = true;
     this.runAgain = false;
     this.consecutiveFailures = 0;
+  }
+
+  _emitState(record) {
+    try { this.onState(record); } catch (error) {
+      this.log(`[tether] maintenance state reporter failed: ${error.message}`);
+    }
   }
 
   _schedule(delayMs) {
@@ -78,6 +86,7 @@ class MemoryMaintenanceSupervisor {
     if (this.started && !this.stopped) return false;
     this.started = true;
     this.stopped = false;
+    this._emitState({ state: 'scheduled', consecutiveFailures: this.consecutiveFailures });
     this._schedule(0);
     return true;
   }
@@ -88,6 +97,7 @@ class MemoryMaintenanceSupervisor {
     this.runAgain = false;
     if (this.timer) this.clearTimer(this.timer);
     this.timer = null;
+    this._emitState({ state: 'stopped', consecutiveFailures: this.consecutiveFailures });
     return wasRunning;
   }
 
@@ -112,13 +122,16 @@ class MemoryMaintenanceSupervisor {
       return;
     }
     this.running = true;
+    this._emitState({ state: 'running', consecutiveFailures: this.consecutiveFailures });
     let nextDelay = this.idleIntervalMs;
     try {
       const result = await this.runOnce();
       this.consecutiveFailures = 0;
+      this._emitState({ state: 'healthy', consecutiveFailures: 0, result });
       if (resultDidWork(result)) nextDelay = this.activeDelayMs;
     } catch (error) {
       this.consecutiveFailures += 1;
+      this._emitState({ state: 'backoff', consecutiveFailures: this.consecutiveFailures });
       nextDelay = Math.min(
         this.errorMaxDelayMs,
         this.errorBaseDelayMs * (2 ** Math.min(this.consecutiveFailures - 1, 10)),
