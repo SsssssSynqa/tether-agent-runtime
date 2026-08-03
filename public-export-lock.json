@@ -14,8 +14,8 @@
     },
     {
       "path": "bin/tether-memory.cjs",
-      "sha256": "b06a6cb2cdd41d2f5971b67b2ed7486144a9d0a3c7e9f64ff67f8f2d35c799c6",
-      "size": 3786
+      "sha256": "4b36abbb7f336ba580a9d829bb6d1354957b2a2c95f1d6e83c9d29627c2d9c44",
+      "size": 4261
     },
     {
       "path": "bin/tether-ops.cjs",
@@ -299,8 +299,8 @@
     },
     {
       "path": "runtime/tools/workspace-tools.cjs",
-      "sha256": "87cdebd9841a7d74d082a50c83bd825868bc52b122f54384c60af90f240c5eb6",
-      "size": 20236
+      "sha256": "229d08bb0929806640a431eb1335f794c0325c910dca4fd9fb1a903488591369",
+      "size": 20707
     },
     {
       "path": "runtime/transport/chunk-emitter.js",
@@ -339,8 +339,8 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "bb36425affb5280fb99ac483aec8d339e29cb5ecd49abd563b8ac22665bd7893",
-      "size": 116008
+      "sha256": "fccf4d8dfd253abe164b798b197b2e255af852435a0b28c67b23faf7eb63607e",
+      "size": 117415
     }
   ]
 }

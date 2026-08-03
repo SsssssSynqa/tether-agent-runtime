@@ -44,9 +44,25 @@ function usage() {
   return [
     'Usage: tether-memory <status|rebuild-semantic|backfill-vectors> [config.json]',
     '',
-    'The command acquires the same storage lock as the runtime. Stop the runtime',
-    'before running a maintenance write; concurrent mutation is refused.',
+    'The command acquires both supervisor and runtime storage locks. Stop the',
+    'runtime and tether-supervisor first; concurrent mutation is refused.',
   ].join('\n');
+}
+
+function acquireMemoryMaintenanceLocks(storageRoot) {
+  const supervisorLock = acquireInstanceLock(path.join(storageRoot, '.tether-supervisor.lock'));
+  let runtimeLock = null;
+  try {
+    runtimeLock = acquireInstanceLock(path.join(storageRoot, '.tether-instance.lock'));
+  } catch (error) {
+    supervisorLock.release();
+    throw error;
+  }
+  return {
+    release() {
+      try { runtimeLock.release(); } finally { supervisorLock.release(); }
+    },
+  };
 }
 
 async function runMemoryCommand({ command, configPath = './config.json' } = {}) {
@@ -56,7 +72,7 @@ async function runMemoryCommand({ command, configPath = './config.json' } = {}) 
     throw error;
   }
   const config = loadTetherConfig(configPath);
-  const lock = acquireInstanceLock(path.join(config.storage.root, '.tether-instance.lock'));
+  const locks = acquireMemoryMaintenanceLocks(config.storage.root);
   let memory = null;
   try {
     ensureRuntimeStorageSchema(config.storage.root, { agentId: config.agent.id });
@@ -78,7 +94,7 @@ async function runMemoryCommand({ command, configPath = './config.json' } = {}) 
     }
     return memory.backfillVectors();
   } finally {
-    try { memory?.close(); } finally { lock.release(); }
+    try { memory?.close(); } finally { locks.release(); }
   }
 }
 
@@ -96,4 +112,9 @@ if (require.main === module) {
   });
 }
 
-module.exports = { configuredProviders, runMemoryCommand, usage };
+module.exports = {
+  acquireMemoryMaintenanceLocks,
+  configuredProviders,
+  runMemoryCommand,
+  usage,
+};

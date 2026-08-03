@@ -232,9 +232,20 @@ function prepareRoots(workspaceRoots = []) {
 function createWorkspaceToolRuntime({ config = {}, storageRoot, log = () => {} } = {}) {
   const settings = config.tools || {};
   const enabled = settings.enabled === true;
+  const authorityRoot = path.resolve(storageRoot || config.storage?.root || '.');
+  fs.mkdirSync(authorityRoot, { recursive: true, mode: 0o700 });
+  const authorityRealPath = fs.realpathSync(authorityRoot);
   const roots = enabled ? prepareRoots(settings.workspaceRoots || []) : new Map();
+  for (const root of roots.values()) {
+    if (isInside(authorityRealPath, root.path) || isInside(root.path, authorityRealPath)) {
+      throw toolError(
+        'TETHER_TOOL_ROOT_OVERLAPS_STORAGE',
+        'Workspace roots must not contain or be contained by Tether continuity storage',
+      );
+    }
+  }
   const journal = new ToolJournal({
-    directory: path.join(path.resolve(storageRoot || config.storage?.root || '.'), 'tools'),
+    directory: path.join(authorityRoot, 'tools'),
   });
   const maxReadBytes = Number(settings.maxReadBytes || 512 * 1024);
   const maxWriteBytes = Number(settings.maxWriteBytes || 1024 * 1024);

@@ -105,7 +105,10 @@ const { CausalJournal } = require('../runtime/causal-journal.cjs');
 const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
 const { findStaleManagedPaths } = require('../scripts/export-public-snapshot.cjs');
 const { verifyFileLock } = require('../scripts/verify-export-lock.cjs');
-const { usage: memoryCommandUsage } = require('../bin/tether-memory.cjs');
+const {
+  runMemoryCommand,
+  usage: memoryCommandUsage,
+} = require('../bin/tether-memory.cjs');
 const { usage: toolsCommandUsage } = require('../bin/tether-tools.cjs');
 const { runOpsCommand, usage: opsCommandUsage } = require('../bin/tether-ops.cjs');
 
@@ -1699,9 +1702,10 @@ async function main() {
     }));
 
     const toolStateRoot = path.join(root, 'workspace-tools');
+    const toolStorageRoot = path.join(toolStateRoot, 'state');
     const workspaceRoot = path.join(toolStateRoot, 'workspace');
     const toolConfig = {
-      storage: { root: toolStateRoot },
+      storage: { root: toolStorageRoot },
       tools: {
         enabled: true,
         maxIterations: 3,
@@ -1717,7 +1721,23 @@ async function main() {
         },
       },
     };
-    const workspaceTools = createWorkspaceToolRuntime({ config: toolConfig, storageRoot: toolStateRoot });
+    const workspaceTools = createWorkspaceToolRuntime({
+      config: toolConfig,
+      storageRoot: toolStorageRoot,
+    });
+    assert.throws(
+      () => createWorkspaceToolRuntime({
+        config: {
+          storage: { root: toolStorageRoot },
+          tools: {
+            ...toolConfig.tools,
+            workspaceRoots: [{ id: 'unsafe', path: toolStateRoot }],
+          },
+        },
+        storageRoot: toolStorageRoot,
+      }),
+      (error) => error.code === 'TETHER_TOOL_ROOT_OVERLAPS_STORAGE',
+    );
     assert.equal(workspaceTools.definitions({ channelId: 'terminal' }).length, 3);
     assert.equal(workspaceTools.definitions({ channelId: 'telegram', isGroup: true }).length, 0);
     const terminalToolContext = { causalId: 'tools:terminal:1', channelId: 'terminal' };
@@ -1814,7 +1834,7 @@ async function main() {
     } catch (error) { secondApprovalError = error; }
     assert.notEqual(secondApprovalError.approvalId, approvalError.approvalId);
     const externalApprovalJournal = new ToolJournal({
-      directory: path.join(toolStateRoot, 'tools'),
+      directory: path.join(toolStorageRoot, 'tools'),
     });
     externalApprovalJournal.resolveApproval(approvalError.approvalId, 'approved');
     const approvedWrite = await workspaceTools.execute(
@@ -2012,8 +2032,9 @@ async function main() {
     );
 
     const providerToolRoot = path.join(root, 'provider-tool-loop');
+    const providerToolStorageRoot = path.join(providerToolRoot, 'state');
     const providerToolConfig = {
-      storage: { root: providerToolRoot },
+      storage: { root: providerToolStorageRoot },
       tools: {
         enabled: true,
         maxIterations: 3,
@@ -2030,7 +2051,7 @@ async function main() {
     let providerToolFetches = 0;
     const providerToolRuntime = createWorkspaceToolRuntime({
       config: providerToolConfig,
-      storageRoot: providerToolRoot,
+      storageRoot: providerToolStorageRoot,
     });
     const providerWithTools = createOpenAICompatibleProvider({
       providers: [{
@@ -2097,7 +2118,7 @@ async function main() {
     );
     const providerReplayRuntime = createWorkspaceToolRuntime({
       config: providerToolConfig,
-      storageRoot: providerToolRoot,
+      storageRoot: providerToolStorageRoot,
     });
     const replayProvider = createOpenAICompatibleProvider({
       providers: [{
@@ -2128,7 +2149,7 @@ async function main() {
       }],
       toolRuntime: createWorkspaceToolRuntime({
         config: changedRootConfig,
-        storageRoot: providerToolRoot,
+        storageRoot: providerToolStorageRoot,
       }),
       fetchImpl: async () => { throw new Error('contract mismatch must not fetch'); },
     });
@@ -2138,9 +2159,10 @@ async function main() {
     );
 
     const ambiguousToolRoot = path.join(root, 'provider-tool-ambiguous');
+    const ambiguousToolStorageRoot = path.join(ambiguousToolRoot, 'state');
     const ambiguousToolConfig = {
       ...providerToolConfig,
-      storage: { root: ambiguousToolRoot },
+      storage: { root: ambiguousToolStorageRoot },
       tools: {
         ...providerToolConfig.tools,
         workspaceRoots: [{ id: 'workspace', path: path.join(ambiguousToolRoot, 'workspace') }],
@@ -2148,7 +2170,7 @@ async function main() {
     };
     const ambiguousToolRuntime = createWorkspaceToolRuntime({
       config: ambiguousToolConfig,
-      storageRoot: ambiguousToolRoot,
+      storageRoot: ambiguousToolStorageRoot,
     });
     const ambiguousToolProvider = createOpenAICompatibleProvider({
       providers: [{
@@ -2181,7 +2203,7 @@ async function main() {
       }],
       toolRuntime: createWorkspaceToolRuntime({
         config: ambiguousToolConfig,
-        storageRoot: ambiguousToolRoot,
+        storageRoot: ambiguousToolStorageRoot,
       }),
       fetchImpl: async () => { forbiddenAmbiguousRefetches += 1; throw new Error('must not refetch'); },
     });
@@ -2192,8 +2214,9 @@ async function main() {
     assert.equal(forbiddenAmbiguousRefetches, 0);
 
     const approvalRuntimeRoot = path.join(root, 'approval-runtime');
+    const approvalRuntimeStorageRoot = path.join(approvalRuntimeRoot, 'state');
     const approvalRuntimeConfig = {
-      storage: { root: approvalRuntimeRoot },
+      storage: { root: approvalRuntimeStorageRoot },
       tools: {
         ...providerToolConfig.tools,
         workspaceRoots: [{ id: 'workspace', path: path.join(approvalRuntimeRoot, 'workspace') }],
@@ -2201,7 +2224,7 @@ async function main() {
     };
     const approvalRuntimeTools = createWorkspaceToolRuntime({
       config: approvalRuntimeConfig,
-      storageRoot: approvalRuntimeRoot,
+      storageRoot: approvalRuntimeStorageRoot,
     });
     let approvalRuntimeFetches = 0;
     const approvalRuntimeProvider = createOpenAICompatibleProvider({
@@ -2531,7 +2554,24 @@ async function main() {
       () => runOpsCommand(['migrate', opsConfigPath]),
       (error) => error.code === 'TETHER_INSTANCE_LOCKED',
     );
+    await assert.rejects(
+      () => runMemoryCommand({ command: 'status', configPath: opsConfigPath }),
+      (error) => error.code === 'TETHER_INSTANCE_LOCKED',
+    );
     heldSupervisorLock.release();
+    const heldRuntimeLock = acquireInstanceLock(path.join(
+      backupStorageRoot,
+      '.tether-instance.lock',
+    ));
+    await assert.rejects(
+      () => runMemoryCommand({ command: 'status', configPath: opsConfigPath }),
+      (error) => error.code === 'TETHER_INSTANCE_LOCKED',
+    );
+    assert.equal(
+      fs.existsSync(path.join(backupStorageRoot, '.tether-supervisor.lock')),
+      false,
+    );
+    heldRuntimeLock.release();
     assert.equal(runOpsCommand(['resume', '501', opsConfigPath]).state, 'received');
     const opsInbox = new DurableInbox({
       filePath: path.join(backupStorageRoot, 'telegram-inbox.jsonl'),
