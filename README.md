@@ -5,7 +5,7 @@ Tether is a local-first agent runtime that preserves one continuous identity acr
 > **One agent. One session. Every channel. Memory that stays.**<br>
 > **一个 Agent，一条连续会话，跨越所有通道，记忆始终留存。**
 
-中文文档见 [README.zh-CN.md](README.zh-CN.md).
+Simplified Chinese documentation: [README.zh-CN.md](README.zh-CN.md).
 
 In the Tether architecture, Telegram and terminal are two doors into the same agent—not separate bots, histories, or approximations of one another. The public core keeps the authoritative session and append-only source history attached to that identity and provides the durable, semantic, and adapter primitives needed to extend the runtime without violating that boundary.
 
