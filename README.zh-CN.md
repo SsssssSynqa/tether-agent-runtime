@@ -7,9 +7,11 @@
 **One agent. One session. Every channel. Memory that stays.**<br>
 **一个 Agent，一条连续会话，跨越所有通道，记忆始终留存。**
 
-给一个走 API 的 Agent，一份 Claude Code 和 Codex 才有的连续性——它们的连续性来自"常驻进程"，Tether 把它给了没有常驻进程的 API 机：手机上用 Telegram 找它，笔记本上打开终端接着聊，同一条对话往下走，两边都记得。接任何 OpenAI-compatible API，所有数据都在你自己控制的文件夹里。
+只要有一个 API，就能把你的 Agent 接进 Telegram 和本地终端——两边是同一条会话，实时同步。自带一套连续记忆（自动折叠 + 日卡周卡，也可以再叠加你自己的记忆库和自动召回）和一个能看见记忆的简易前端。开箱即用，数据全在你自己控制的文件夹里。
 
-Tether 是一个 local-first 的人格 Agent 运行时。终端和 Telegram 是通往同一条权威会话的两扇门，不是两个历史慢慢漂开的 bot。供应商回落、进程重启、上下文折叠和派生记忆，都围绕同一个身份边界发生。
+Claude Code 和 Codex 的连续性来自常驻进程；走 API 的机什么都没有，Tether 就是把这份连续性补给它们的运行时。终端和 Telegram 是通往同一条权威会话的两扇门，不是两个历史慢慢漂开的 bot。
+
+名字取自宇航员和飞船之间那根不能断的绳子：绳子在，人就不会飘走。
 
 [English](README.md) · [快速上手](docs/GETTING_STARTED.zh-CN.md) · [架构](ARCHITECTURE.zh-CN.md) · [Selfsame Protocol](SELFSAME_PROTOCOL.md)
 

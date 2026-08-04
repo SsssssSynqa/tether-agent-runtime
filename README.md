@@ -9,9 +9,11 @@ Tether is a local-first agent runtime that preserves one continuous identity acr
 **One agent. One session. Every channel. Memory that stays.**<br>
 **一个 Agent，一条连续会话，跨越所有通道，记忆始终留存。**
 
-Give an agent behind a plain API the continuity that Claude Code and Codex get from running as a long-lived process: message it on Telegram from your phone, open a terminal on your laptop and the same conversation continues, and it still remembers across both. Point it at any OpenAI-compatible API; everything stays in folders you control.
+All it takes is an API: Tether puts your agent on Telegram and in your local terminal at the same time — one session, live on both sides. Continuous memory is built in (automatic folding plus day/week cards, with room to stack your own memory store and recall on top), along with a small web console where you can see what it remembers. Ready to run; every byte stays in folders you control.
 
-Terminal and Telegram are two doors into one authoritative session, not two bots with histories that slowly drift apart. Provider failover, process restarts, context folding, and derived memory all happen around that same identity boundary.
+Claude Code and Codex get their continuity from being long-lived processes; an agent behind a plain API has none. Tether is the runtime that gives it that continuity. Terminal and Telegram are two doors into one authoritative session, not two bots with histories that slowly drift apart.
+
+The name is the astronaut's tether — the line between you and the ship that must not break. As long as the line holds, nobody drifts away.
 
 [简体中文](README.zh-CN.md) · [Getting started](docs/GETTING_STARTED.md) · [Architecture](ARCHITECTURE.md) · [Selfsame Protocol](SELFSAME_PROTOCOL.md)
 
