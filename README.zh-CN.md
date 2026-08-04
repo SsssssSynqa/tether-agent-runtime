@@ -114,7 +114,7 @@ Console 的 **当前上下文** 页展示的是某一轮**实际编译进去的�
 - 人工订正只追加出处，不擦除历史；
 - 不同通道可以有不同工具权限，但拿到的始终是同一条人格历史。
 
-这些要求被独立写在 [Selfsame Protocol](SELFSAME_PROTOCOL.md) 里。Tether 是参考实现；其它运行时也可以实现这套协议。
+这些要求被独立写在 [Selfsame Protocol](SELFSAME_PROTOCOL.md) 里（[中文对照译本](SELFSAME_PROTOCOL.zh-CN.md)，规范性以英文版为准）。Tether 是参考实现；其它运行时也可以实现这套协议。
 
 ## 快速开始
 

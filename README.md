@@ -116,7 +116,7 @@ Tether fails closed instead of manufacturing continuity:
 - human correction appends provenance instead of erasing the record;
 - tools may have different permissions by channel, but they never receive a forked persona history.
 
-These requirements are specified independently in the [Selfsame Protocol](SELFSAME_PROTOCOL.md). Tether is a reference implementation; other runtimes can implement the protocol.
+These requirements are specified independently in the [Selfsame Protocol](SELFSAME_PROTOCOL.md) ([Chinese reference translation](SELFSAME_PROTOCOL.zh-CN.md); the English text governs). Tether is a reference implementation; other runtimes can implement the protocol.
 
 ## Quick start
 
