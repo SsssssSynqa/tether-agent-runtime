@@ -9,8 +9,8 @@
     },
     {
       "path": ".gitignore",
-      "sha256": "94cfb119973bd014aed0da6b5f0b7448ae903f3e71490569d8bd39d2189b92b6",
-      "size": 318
+      "sha256": "5548bdda1b1e77c6b690004e528ed5914f4796569f12b7938153395abaaa20db",
+      "size": 328
     },
     {
       "path": "bin/tether-memory.cjs",
