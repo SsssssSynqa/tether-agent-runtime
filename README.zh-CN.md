@@ -9,7 +9,7 @@
 
 Tether 是一个 local-first 的人格 Agent 运行时。终端和 Telegram 是通往同一条权威会话的两扇门，不是两个历史慢慢漂开的 bot。供应商回落、进程重启、上下文折叠和派生记忆，都围绕同一个身份边界发生。
 
-[English](README.md) · [快速上手](docs/GETTING_STARTED.zh-CN.md) · [架构](ARCHITECTURE.zh-CN.md) · [Selfsame Protocol](SELFSAME_PROTOCOL.md)
+[English](README.md) · [快速上手](docs/GETTING_STARTED.zh-CN.md) · [架构](ARCHITECTURE.zh-CN.md) · [Selfsame Protocol](SELFSAME_PROTOCOL.md)（[中文对照](SELFSAME_PROTOCOL.zh-CN.md)）
 
 Tether 从一套生产运行时中抽取而来，公开仓库使用完全合成、与供应商无关的内容，不含任何生产对话、凭据、账号标识或部署地址。
 
@@ -46,7 +46,7 @@ Tether 从一套生产运行时中抽取而来，公开仓库使用完全合成�
 - 人工订正只追加出处，不擦除历史；
 - 不同通道可以有不同工具权限，但拿到的始终是同一条人格历史。
 
-这些要求被独立写在 [Selfsame Protocol](SELFSAME_PROTOCOL.md) 里。Tether 是参考实现；其它运行时也可以实现这套协议。
+这些要求被独立写在 [Selfsame Protocol](SELFSAME_PROTOCOL.md) 里（[中文对照译本](SELFSAME_PROTOCOL.zh-CN.md)，规范性以英文版为准）。Tether 是参考实现；其它运行时也可以实现这套协议。
 
 ## 记忆怎样留下来
 
