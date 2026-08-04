@@ -1,5 +1,5 @@
 {
-  "file_count": 40,
+  "file_count": 44,
   "files": [
     {
       "path": ".env.example",
@@ -13,8 +13,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "c85fd9f4b9243f2e73a8b6292ab0ee621c6870fdffa1630fe9b6967ffba93653",
-      "size": 5350
+      "sha256": "417263b1378c99a898e5e2082bc1078189aa8d232a57bc3c11174447dc659476",
+      "size": 6190
     },
     {
       "path": "backend/requirements.txt",
@@ -58,8 +58,8 @@
     },
     {
       "path": "frontend/index.html",
-      "sha256": "a68036d280b3a0518dbab899ec8b75799b8396df442ab2d52e74f527eac056d5",
-      "size": 471
+      "sha256": "ff1d3b92b5f589d825ff07986a3fa80801461d31e16fc409f5989cd8c19a522b",
+      "size": 428
     },
     {
       "path": "frontend/package.json",
@@ -77,19 +77,24 @@
       "size": 919
     },
     {
+      "path": "frontend/src/i18n.js",
+      "sha256": "80b99f8732e4f72998c27753e84e834cdc59ff341acdc94cf031ef98fb924f25",
+      "size": 16431
+    },
+    {
       "path": "frontend/src/main.js",
-      "sha256": "3733d9de3adec54574adafca653151f735e978157ad6224af2205476dee2e22f",
-      "size": 1277
+      "sha256": "eba01d501991d52ced15ea3b31b8b32d8cb4e3bdc9828a96691fc598e65bb12e",
+      "size": 4599
     },
     {
       "path": "frontend/src/model.js",
-      "sha256": "e2ffb5d9f646d512e14c891b77f69dd2bf6463b58f6dd4d51d138b8a703a7259",
-      "size": 1559
+      "sha256": "450f4e78dde6fa64bddd67751ded3827de1f1c1d3ea559115733a6b29a51d66d",
+      "size": 5750
     },
     {
       "path": "frontend/src/style.css",
-      "sha256": "fe17b1c55a19f7b89dcf78d628d0c0023711ea3e6380b5be2f938d05d24ca741",
-      "size": 11202
+      "sha256": "27516b0658d8815905691f185564bf552aa92288a78afe39949426b5541cdacd",
+      "size": 15403
     },
     {
       "path": "frontend/src/tether-memory-policy.js",
@@ -98,13 +103,13 @@
     },
     {
       "path": "frontend/src/view.js",
-      "sha256": "5b02a90ebfb2eb547c84099c38618e013a7c99a1e913869325d107fe21afd030",
-      "size": 12032
+      "sha256": "069ef6bfaf6331620e1216bcbb9e53a0b2c7a302a0cfef06ab0f3926f795578d",
+      "size": 21231
     },
     {
       "path": "frontend/tests/model.test.js",
-      "sha256": "dba5d37f5e20ba56dda1dd4cabcf970a6c471a057d363de5b8feec2fbb92acf3",
-      "size": 4085
+      "sha256": "be450faec690d62add269814fbd39486e068bc6b4c38370c6fe590d9a5724e4f",
+      "size": 10327
     },
     {
       "path": "frontend/vite.config.js",
@@ -113,8 +118,8 @@
     },
     {
       "path": "sample-data/cards/cards.jsonl",
-      "sha256": "f0ee278409fc214938adfb4d303470658d2abb3498486ee73def86d4bebb3c1c",
-      "size": 825
+      "sha256": "e923d352555c712be528c42acc42b5d561e3328d21d8f2cac8d91445090df1d4",
+      "size": 2073
     },
     {
       "path": "sample-data/cards/compile-manifests.jsonl",
@@ -123,8 +128,8 @@
     },
     {
       "path": "sample-data/cards/coverage.jsonl",
-      "sha256": "42d333f1bc759c9484872874bed46c18743c22ed8acd241ccf04f005cd104dbf",
-      "size": 328
+      "sha256": "335f76d688bc9a8fe72dbd2b544a4cdb2b57767e332ce45d3fa5ed40da13481b",
+      "size": 819
     },
     {
       "path": "sample-data/cards/day/2026/2026-01-02.md",
@@ -132,14 +137,29 @@
       "size": 294
     },
     {
+      "path": "sample-data/cards/day/2026/2026-01-16.md",
+      "sha256": "7c84c408d0a7456bf4f061ae65cf807c9111d38c48560766b678a171bc8ac318",
+      "size": 327
+    },
+    {
+      "path": "sample-data/cards/day/2026/2026-02-03.md",
+      "sha256": "5b8b4ac5c533dda822c20a3f59b24e04639167657af8d107a5ecd89050684fb1",
+      "size": 309
+    },
+    {
       "path": "sample-data/cards/week/2025/2025-12-29--2026-01-04.md",
       "sha256": "0a747af5ed52aa9613a9f17149ded72d326927afd63ef1271b1b7e316557bc37",
       "size": 209
     },
     {
+      "path": "sample-data/cards/week/2026/2026-01-26--2026-02-01.md",
+      "sha256": "316f92e31935181a97a6fc630fc1fd6797caf3cb9daa469158635c3d788ae783",
+      "size": 256
+    },
+    {
       "path": "sample-data/folds/2026-01-02.md",
-      "sha256": "2d360d696151eb31d36d4710ff279fd37fffe9672f3cc2e33772483aa2c9ccf4",
-      "size": 212
+      "sha256": "6689e74cd33430ebb094400fd0e37fa0bf8105ef22f1f840e375f8e10261f3f7",
+      "size": 407
     },
     {
       "path": "sample-data/semantic/claims.jsonl",
@@ -203,6 +223,6 @@
     }
   ],
   "license": "Apache-2.0",
-  "manifest_sha256": "b65709d7eb7491596f6248a3dca7434f4f81d24999a57d5f405035b8bbbdf777",
+  "manifest_sha256": "4335d142d04b47cc7e21de77c173d7a4156ba904e442c16516805132ab2b0183",
   "schema_version": 1
 }

@@ -30,7 +30,7 @@ The current tree is the complete reference runtime for the scope below—not a b
 | Retrieval | Optional embeddings, resumable vector backfill, bounded semantic recall, and graceful fallback to layered cards |
 | Tools | Provider tool-call loop with bounded local `list_workspace_directory`, `read_workspace_file`, and atomic `write_workspace_file`; per-channel allow/approval/deny policy |
 | Operations | Heartbeats, readiness, supervised restart with jitter and crash-loop budget, storage versioning, migration, backup/verification/restore, and dead-letter CLI |
-| Console | A real read-only web frontend and local API for cards, folds, semantic records, queues, vectors, provenance, integrity, and compiled-context manifests |
+| Console | A bilingual read-only web frontend and local API with layered month calendars, cards, folds, semantic records, queues, vectors, provenance, integrity, and compiled-context manifests |
 
 Any API that implements the documented OpenAI-compatible Chat Completions/Embeddings subset can be configured directly. Other APIs can be connected through the provider adapter boundary without changing the session or memory model.
 
@@ -100,7 +100,7 @@ Read [Getting started](docs/GETTING_STARTED.md) before connecting real data. Exi
 
 ## Tether Console
 
-The Console is not a planned feature: `console/backend/` and `console/frontend/` are both included and tested. It reads the local memory folders without becoming a second database or write authority. The backend binds to `127.0.0.1:8431` by default and returns no absolute host paths.
+The Console is not a planned feature: `console/backend/` and `console/frontend/` are both included and tested. It reads the local memory folders without becoming a second database or write authority. Day cards, week cards, and folds each have a Monday-first month calendar keyed directly by `period_key`. The full interface switches between English and Simplified Chinese while stored memory remains in its original language. The backend binds to `127.0.0.1:8431` by default and returns no absolute host paths.
 
 ![Tether Console running against bundled synthetic memory](docs/assets/tether-console.png)
 
