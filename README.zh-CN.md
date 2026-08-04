@@ -28,7 +28,7 @@ Tether 从一套生产运行时中抽取而来，公开仓库使用完全合成�
 | 语义召回 | 可选 embedding、可续跑的向量回填、有界语义召回；向量失败时自动退回分层卡片 |
 | 工具 | 完整的 provider tool-call 循环；有界的本地目录列表、UTF-8 读取和原子写入；按通道 allow/approval/deny |
 | 运维 | 心跳与 readiness、带抖动和熔断预算的进程监督、存储版本、迁移、备份/校验/恢复，以及死信 CLI |
-| Console | 真正可运行的只读网页前端与本地 API：卡片、折叠、语义记录、队列、向量覆盖、来源、完整性、实际上下文 manifest |
+| Console | 中英双语只读网页前端与本地 API：分层月历、卡片、折叠、语义记录、队列、向量覆盖、来源、完整性与实际上下文 manifest |
 
 实现了文档所列 OpenAI-compatible Chat Completions / Embeddings 子集的 API 可以直接接入；其它 API 可按 provider adapter 契约接入，不需要改写会话和记忆模型。
 
@@ -98,7 +98,7 @@ node bin/tether.cjs ./config.json
 
 ## Tether Console
 
-Console 不是“以后再做”的功能：`console/backend/` 与 `console/frontend/` 都已包含并进入测试。它直接读取本地记忆文件夹，但不会成为第二个数据库或写入权威。后端默认只监听 `127.0.0.1:8431`，响应中也不暴露宿主机绝对路径。
+Console 不是“以后再做”的功能：`console/backend/` 与 `console/frontend/` 都已包含并进入测试。它直接读取本地记忆文件夹，但不会成为第二个数据库或写入权威。日卡、周卡与折叠各有一份周一起始、直接按 `period_key` 落位的月历；整套界面可以在中英文之间切换，原始记忆仍保持原文。后端默认只监听 `127.0.0.1:8431`，响应中也不暴露宿主机绝对路径。
 
 ![Tether Console 使用仓库合成记忆运行](docs/assets/tether-console.png)
 

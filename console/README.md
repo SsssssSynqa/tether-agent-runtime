@@ -7,6 +7,7 @@ Tether Console is the generic extraction of the production Memory Hub views used
 ## What it shows
 
 - fold logs plus day and week cards;
+- a Monday-first month calendar for every card layer, grouped directly by each record's `period_key` with data-month navigation and per-day counts;
 - semantic claims, events, projections, and packet reviews as separate records;
 - durable semantic extraction queue health without exposing raw packet text or provider errors;
 - embedding coverage and sanitized vector metadata without returning numeric vectors;
@@ -39,6 +40,10 @@ PYTHONPATH=backend python -m tether_console
 ```
 
 Open <http://127.0.0.1:8431>. The bundled `sample-data/` is wholly synthetic and is safe for screenshots, tests, and demonstrations.
+
+The interface is available in English and Simplified Chinese. On first visit it follows the browser's supported language, then remembers a manual `中文 / EN` choice in local storage. Interface labels, dates, states, empty/error messages, and accessibility labels switch together. Stored cards, fold text, evidence, and technical JSON always remain byte-for-byte in their original language; the Console never sends them to a translation service or rewrites them for display.
+
+Calendar grouping is deliberately timezone-free: a record with `period_key: "2026-01-26"` appears on that exact date. Week cards use their recorded week-start key rather than being shifted by the browser timezone.
 
 For frontend development, keep the backend on `8431`, then run:
 
