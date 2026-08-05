@@ -73,8 +73,8 @@
     },
     {
       "path": "frontend/src/api.js",
-      "sha256": "c151a003bfaf037a770a3adadbd4db4f98fe6f88ccd7ec09bfef5c57e3408537",
-      "size": 919
+      "sha256": "73bda0cc7e75e4381a7062775c8aaaf586a9af160a8a564d32d7914adc1617e1",
+      "size": 1048
     },
     {
       "path": "frontend/src/i18n.js",
@@ -108,8 +108,8 @@
     },
     {
       "path": "frontend/tests/model.test.js",
-      "sha256": "be450faec690d62add269814fbd39486e068bc6b4c38370c6fe590d9a5724e4f",
-      "size": 10327
+      "sha256": "76aacb3f2c102f32bbe81c6a0f17ee8837163f72504c9a3762a5aabc1699f0d5",
+      "size": 10319
     },
     {
       "path": "frontend/vite.config.js",
