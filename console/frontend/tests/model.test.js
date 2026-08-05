@@ -226,7 +226,7 @@ test('API helper carries fail-closed payloads', async () => {
     status: 503,
     json: async () => ({ error: 'memory_store_corrupt', detail: 'claims.jsonl:2' }),
   })
-  await assert.rejects(() => getJson('/api/semantic', fetchImpl), (error) => {
+  await assert.rejects(() => getJson('api/semantic', fetchImpl), (error) => {
     assert.equal(error.status, 503)
     assert.equal(error.payload.error, 'memory_store_corrupt')
     return true
@@ -241,8 +241,8 @@ test('console load requests every independent evidence view', async () => {
   }
   const loaded = await loadConsole(fetchImpl)
   assert.deepEqual(seen, [
-    '/api/status', '/api/cards', '/api/semantic',
-    '/api/context/current', '/api/sources', '/api/integrity',
+    'api/status', 'api/cards', 'api/semantic',
+    'api/context/current', 'api/sources', 'api/integrity',
   ])
-  assert.equal(loaded.context.path, '/api/context/current')
+  assert.equal(loaded.context.path, 'api/context/current')
 })

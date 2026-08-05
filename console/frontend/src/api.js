@@ -15,13 +15,15 @@ export async function getJson(path, fetchImpl = globalThis.fetch) {
 }
 
 export async function loadConsole(fetchImpl = globalThis.fetch) {
+  // Relative paths so the Console can be mounted at any sub-path
+  // (e.g. embedded under another local dashboard), not only at "/".
   const paths = [
-    '/api/status',
-    '/api/cards',
-    '/api/semantic',
-    '/api/context/current',
-    '/api/sources',
-    '/api/integrity',
+    'api/status',
+    'api/cards',
+    'api/semantic',
+    'api/context/current',
+    'api/sources',
+    'api/integrity',
   ]
   const [status, cards, semantic, context, sources, integrity] = await Promise.all(
     paths.map((path) => getJson(path, fetchImpl)),
