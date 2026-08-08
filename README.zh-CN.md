@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/tether-mark.svg" width="112" alt="Tether 标志">
+  <img src="docs/assets/tether-banner.jpg" width="100%" alt="Tether">
 </p>
 
 # Tether

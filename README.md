@@ -3,7 +3,7 @@
 Tether is a local-first agent runtime that preserves one continuous identity across channels, provider changes, crashes, and context limits.
 
 <p align="center">
-  <img src="docs/assets/tether-mark.svg" width="112" alt="Tether mark">
+  <img src="docs/assets/tether-banner.jpg" width="100%" alt="Tether">
 </p>
 
 **One agent. One session. Every channel. Memory that stays.**<br>
