@@ -178,16 +178,21 @@ Common fields:
 | `authentication: "none"` | Disable built-in bearer auth for an unauthenticated endpoint or custom-header auth |
 | `headers` | Non-secret static headers only |
 | `headerEnv` | Map secret header names to environment-variable names |
-| `timeoutMs` | Per-provider request timeout |
+| `timeoutMs` | Per-provider request timeout (chat) |
+| `backgroundTimeoutMs` | Timeout for fold / cards / semantic work. Defaults to `timeoutMs` × 2 — a fold digests tens of thousands of characters and legitimately runs far longer than a reply |
+| `maxAttempts` | Retries on the *same* provider before falling through to the next (default 2). Only transient failures retry; bad credentials, refused content and exhausted balance fail immediately |
+| `purposes` | Restrict this provider to `["chat"]` or `["background"]`. Omit for both. Lets summarisation run on a separate account from the agent's voice. If no provider is eligible for a requested group, the request fails closed instead of crossing the boundary |
 | `foldModel`, `memoryModel` | Optional fold and day/week-card models |
 | `semanticExtractorModel` | Optional extraction/repair/audit model |
 | `semanticVerifierModel` | Optional verification model |
 | `semanticHighRiskModel` | Optional high-risk verification model |
-| `maxTokens` and purpose-specific `*MaxTokens` | Optional output limits |
+| `maxTokens` and purpose-specific `*MaxTokens` | Output limits. Chat may omit them; **background purposes always send a limit** (defaults: fold/cards 8000, semantic extract 16000, verify 4000) because a reasoning model with no ceiling will generate until the socket times out |
 | `imageInput` | `data-url`, `metadata-only`, or `reject` |
 | `maxImageParts` | Maximum images added to one provider request |
 | `embeddingsUrl`, `embeddingModel` | Both required together for embeddings |
 | `embeddingDimensions`, `embeddingTimeoutMs` | Optional embedding request controls |
+
+Purpose grouping: `fold`, `memory-card`, `memory-embedding`, `semantic-extract`(+`-repair`/`-audit`), `semantic-verify` and `semantic-high-risk` are **background**; everything else is **chat**. This grouping drives `purposes`, `backgroundTimeoutMs`, and the background token defaults.
 
 Purpose-specific model fallback is deterministic: semantic high-risk → verifier → default; semantic extractor → memory → fold → default; memory cards → fold → default; fold → default.
 

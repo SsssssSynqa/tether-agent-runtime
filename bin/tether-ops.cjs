@@ -31,6 +31,7 @@ function usage() {
     '  tether-ops resume <update-id> [config.json]',
     '  tether-ops requeue-failed <update-id> [config.json]',
     '  tether-ops requeue-done <update-id> --confirm-redeliver [config.json]',
+    '  tether-ops archive <update-id> --confirm-no-replay [config.json]',
     '  tether-ops archive-orphan <update-id> --confirm-unrecoverable [config.json]',
     '  tether-ops migrate [config.json]',
     '  tether-ops backup <destination-directory> [config.json]',
@@ -121,6 +122,7 @@ function runOpsCommand(argv = process.argv.slice(2)) {
     'resume',
     'requeue-failed',
     'requeue-done',
+    'archive',
     'archive-orphan',
     'migrate',
     'backup',
@@ -139,15 +141,16 @@ function runOpsCommand(argv = process.argv.slice(2)) {
     };
   }
   const idCommand = [
-    'inspect', 'requeue', 'resume', 'requeue-failed', 'requeue-done', 'archive-orphan',
+    'inspect', 'requeue', 'resume', 'requeue-failed', 'requeue-done', 'archive', 'archive-orphan',
   ].includes(command);
   if (idCommand && argv[1] == null) throw new Error(usage());
   if (command === 'archive-orphan' && argv[2] !== '--confirm-unrecoverable') throw new Error(usage());
+  if (command === 'archive' && argv[2] !== '--confirm-no-replay') throw new Error(usage());
   if (command === 'requeue-done' && argv[2] !== '--confirm-redeliver') throw new Error(usage());
   if (['backup', 'restore'].includes(command) && !argv[1]) throw new Error(usage());
   let configPath = './config.json';
   if (['status', 'dead-letters', 'migrate'].includes(command)) configPath = argv[1] || configPath;
-  else if (['archive-orphan', 'requeue-done'].includes(command)) configPath = argv[3] || configPath;
+  else if (['archive', 'archive-orphan', 'requeue-done'].includes(command)) configPath = argv[3] || configPath;
   else if (idCommand || ['backup', 'restore'].includes(command)) configPath = argv[2] || configPath;
   const config = configWithoutCredentials(configPath);
 
@@ -194,6 +197,7 @@ function runOpsCommand(argv = process.argv.slice(2)) {
     if (command === 'resume') return inbox.requeueOperatorPaused(updateId, 'operator-cli-resume');
     if (command === 'requeue-failed') return inbox.requeueFailed(updateId, 'operator-cli-requeue-failed');
     if (command === 'requeue-done') return inbox.requeueDone(updateId, 'operator-confirmed-redelivery');
+    if (command === 'archive') return inbox.archiveTerminal(updateId, 'operator-confirmed-no-replay');
     return inbox.archiveUnrecoverableOrphan(updateId, 'operator-confirmed-original-unrecoverable');
   });
 }

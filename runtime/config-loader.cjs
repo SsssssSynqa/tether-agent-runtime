@@ -257,6 +257,29 @@ function validateConfig(config) {
     if (!provider.apiKeyEnv && provider.authentication !== 'none') {
       errors.push(`providers[${index}] must declare apiKeyEnv or authentication=none`);
     }
+    // Optional purpose restriction (2026-08-09): lets background work (fold,
+    // memory cards, semantic extraction) run on a separate account from the
+    // agent's conversational voice. Omit to keep a provider eligible for all.
+    if (provider.purposes != null) {
+      if (!Array.isArray(provider.purposes) || !provider.purposes.length) {
+        errors.push(`providers[${index}].purposes must be a non-empty array when supplied`);
+      } else if (provider.purposes.some((p) => p !== 'chat' && p !== 'background')) {
+        errors.push(`providers[${index}].purposes accepts only "chat" and "background"`);
+      }
+    }
+    if (
+      provider.backgroundTimeoutMs != null
+      && (!Number.isFinite(Number(provider.backgroundTimeoutMs))
+        || Number(provider.backgroundTimeoutMs) <= 0)
+    ) {
+      errors.push(`providers[${index}].backgroundTimeoutMs must be a positive number`);
+    }
+    if (
+      provider.maxAttempts != null
+      && (!Number.isSafeInteger(Number(provider.maxAttempts)) || Number(provider.maxAttempts) <= 0)
+    ) {
+      errors.push(`providers[${index}].maxAttempts must be a positive integer`);
+    }
     if (provider.adapter === 'openai-compatible' && !provider.baseUrl) {
       errors.push(`providers[${index}].baseUrl is required`);
     }

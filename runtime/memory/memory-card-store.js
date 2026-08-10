@@ -56,12 +56,46 @@ class MemoryCardStore {
     this.coverageFile = path.join(this.directory, 'coverage.jsonl');
     this.hubCandidatesFile = path.join(this.directory, 'hub-candidates.jsonl');
     this.humanOverridesFile = path.join(this.directory, 'human-overrides.jsonl');
+    this.sourceArchiveEvidenceFile = path.join(this.directory, 'source-archive-evidence.jsonl');
     this.log = log;
   }
 
   humanOverrides() {
     return readJsonl(this.humanOverridesFile)
       .filter((entry) => entry?.type === this.memoryPolicy.records.humanOverrideType);
+  }
+
+  archivedSourceIds() {
+    return [...new Set(
+      readJsonl(this.sourceArchiveEvidenceFile)
+        .filter((entry) => entry?.type === 'memory-source-archive-evidence')
+        .map((entry) => String(entry.sourceId || ''))
+        .filter(Boolean),
+    )].sort();
+  }
+
+  recordArchivedSourceEvidence({
+    sourceId,
+    cardIds = [],
+    actor = 'system:source-archive-reconciliation',
+    reason = 'source-no-longer-in-active-source-view',
+  } = {}) {
+    const id = String(sourceId || '').trim();
+    const evidenceCardIds = [...new Set(cardIds.map(String).filter(Boolean))].sort();
+    if (!id.startsWith('memory-source:')) throw new Error('archived source evidence 缺少 sourceId');
+    if (!evidenceCardIds.length) throw new Error('archived source evidence 缺少 cardIds');
+    if (this.archivedSourceIds().includes(id)) return { duplicate: true, sourceId: id };
+    const entry = {
+      type: 'memory-source-archive-evidence',
+      schema: 1,
+      sourceId: id,
+      cardIds: evidenceCardIds,
+      actor,
+      reason,
+      createdAt: new Date().toISOString(),
+    };
+    appendFsynced(this.sourceArchiveEvidenceFile, entry);
+    return { duplicate: false, ...entry };
   }
 
   latestHumanOverride(cardType, periodKey) {

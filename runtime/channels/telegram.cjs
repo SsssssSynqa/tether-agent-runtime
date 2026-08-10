@@ -503,6 +503,7 @@ function createTelegramChannel({
         archiveRef: `telegram-inbox.jsonl#${normalized.metadata.updateId}`,
         ingestionCursor: `telegram:update:${normalized.metadata.updateId}`,
         attachmentRefs: attachments.map((item) => item.archiveRef || item.sha256).filter(Boolean),
+        evidenceClass: 'conversation',
       };
       return {
         ...normalized,

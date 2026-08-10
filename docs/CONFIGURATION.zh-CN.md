@@ -176,7 +176,10 @@ English documentation: [CONFIGURATION.md](CONFIGURATION.md).
 | `authentication: "none"` | 为无认证端点或自定义 header 认证关闭内置 bearer |
 | `headers` | 只能放非密钥静态 header |
 | `headerEnv` | 把密钥 header 名映射到环境变量名 |
-| `timeoutMs` | 单供应商请求超时 |
+| `timeoutMs` | 单渠道请求超时（对话） |
+| `backgroundTimeoutMs` | 折叠／日周卡／语义等后台任务的超时，缺省为 `timeoutMs` × 2——折叠要消化几万字符，本就比一次回复慢得多 |
+| `maxAttempts` | 同一渠道内的重试次数（默认 2），失败才换下一家。只重试瞬时故障；凭据错误、内容被拒、余额耗尽立即放弃 |
+| `purposes` | 限定该渠道只用于 `["chat"]` 或 `["background"]`，不写则两者都用。可让后台摘要跑在与人格嘴巴不同的账上；若请求分组没有任何可用渠道，会直接失败，不会越界借用另一组渠道 |
 | `foldModel`, `memoryModel` | 可选的 fold 与日/周卡模型 |
 | `semanticExtractorModel` | 可选的提取/修复/审计模型 |
 | `semanticVerifierModel` | 可选验证模型 |
@@ -188,6 +191,8 @@ English documentation: [CONFIGURATION.md](CONFIGURATION.md).
 | `embeddingDimensions`, `embeddingTimeoutMs` | 可选的 embedding 控制项 |
 
 用途模型回落是确定性的：高风险语义 → verifier → 默认；语义提取 → memory → fold → 默认；记忆卡 → fold → 默认；fold → 默认。
+
+用途分组：`fold`、`memory-card`、`memory-embedding`、`semantic-extract`（含 `-repair` / `-audit`）、`semantic-verify` 与 `semantic-high-risk` 都属于 **background**；其余用途属于 **chat**。`purposes`、`backgroundTimeoutMs` 与后台输出上限都按这一分组生效。若对应分组没有任何渠道，运行时直接报错，不会借用另一组渠道。
 
 远程 URL 必须使用 HTTPS。只有 `localhost`、`127.0.0.0/8`、`::1` 可以用 HTTP。URL userinfo 与疑似凭据 query 会被拒绝。内联 `apiKey`、普通 header 中的凭据名、以 `Bearer` 或 `Basic` 开头的普通 header 值也会被拒绝。引用的环境变量缺失时启动失败。
 

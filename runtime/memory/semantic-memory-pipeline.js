@@ -155,6 +155,7 @@ function normalizeRawMessage(message, index = 0) {
     attachmentRefs: Array.isArray(message.attachmentRefs)
       ? message.attachmentRefs.map(String)
       : [],
+    evidenceClass: message.evidenceClass === 'control' ? 'control' : 'conversation',
   };
 }
 
@@ -165,10 +166,13 @@ function createSemanticPacket({
   cursorEnd = null,
   packetId = null,
 } = {}) {
-  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+  const conversationMessages = Array.isArray(rawMessages)
+    ? rawMessages.filter((message) => message?.evidenceClass !== 'control')
+    : [];
+  if (conversationMessages.length === 0) {
     throw new Error('semantic packet 至少需要一条 raw message');
   }
-  const normalized = rawMessages.map(normalizeRawMessage);
+  const normalized = conversationMessages.map(normalizeRawMessage);
   const conversations = new Set(normalized.map((message) => message.conversationId));
   if (conversations.size !== 1) {
     throw new Error('semantic packet 不允许跨 conversation');

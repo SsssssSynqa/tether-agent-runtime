@@ -841,8 +841,8 @@ class SemanticMemoryManager {
     let best = null;
     const compare = (left, right) => (
       (
-        (left.status === 'partial_review_pending' ? 1 : 0)
-        - (right.status === 'partial_review_pending' ? 1 : 0)
+        (right.status === 'partial_review_pending' ? 1 : 0)
+        - (left.status === 'partial_review_pending' ? 1 : 0)
       )
       ||
       (

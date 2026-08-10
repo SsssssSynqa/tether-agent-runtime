@@ -49,7 +49,15 @@ class TetherRuntime {
 
   enqueue(channel, message) {
     const task = this.queue.then(() => this.handle(channel, message));
-    this.queue = task.catch((error) => this.log(`[tether] turn failed: ${error.message}`));
+    this.queue = task.catch((error) => {
+      // 2026-08-08：provider 链失败时把每个站的真实原因一并打出来。原来只打
+      // "Every configured provider failed"，等于把唯一的诊断线索吞掉——排查时
+      // 只能靠猜（实测猜了三轮全错）。error.failures 由 openai-compatible 挂上。
+      const detail = Array.isArray(error?.failures) && error.failures.length
+        ? `：${error.failures.map((f) => `${f.providerId}=${f.message}`).join('；')}`
+        : '';
+      this.log(`[tether] turn failed: ${error.message}${detail}`);
+    });
     return task;
   }
 
