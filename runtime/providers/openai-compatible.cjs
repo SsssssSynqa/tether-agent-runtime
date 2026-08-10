@@ -16,6 +16,57 @@ function completionText(payload) {
   return completionTextFromMessage(payload?.choices?.[0]?.message);
 }
 
+// A provider may declare `purposes` to restrict what it is used for. Two groups:
+//   "chat"       - replying to the owner (the agent's voice)
+//   "background" - fold, memory cards, semantic extraction/verification
+// Omitting `purposes` keeps a provider eligible for everything, so existing
+// configs are unaffected. Declaring it lets background work run on a separate
+// account from the agent's voice — added 2026-08-09 so billing for summarisation
+// can be kept off the conversational key.
+const BACKGROUND_PURPOSES = new Set([
+  'fold',
+  'memory-card',
+  'memory-embedding',
+  'semantic-extract',
+  'semantic-extract-repair',
+  'semantic-extract-audit',
+  'semantic-verify',
+  'semantic-high-risk',
+]);
+
+function purposeGroup(purpose) {
+  return BACKGROUND_PURPOSES.has(purpose) ? 'background' : 'chat';
+}
+
+// Chat and background work have very different latency profiles: a reply is
+// interactive and should fail fast, while a fold digests tens of thousands of
+// characters and legitimately runs for a minute or more. Sharing one timeout
+// forces a bad trade — set it low and every fold aborts after the model already
+// did (and billed) the work; set it high and a stuck reply hangs the channel.
+// Background gets 2x by default; override per provider with backgroundTimeoutMs.
+function timeoutForPurpose(provider, purpose, fallback) {
+  const base = Number(provider.timeoutMs || fallback);
+  if (purposeGroup(purpose) !== 'background') return base;
+  return Number(provider.backgroundTimeoutMs) || base * 2;
+}
+
+function providersForPurpose(providers, purpose) {
+  const group = purposeGroup(purpose);
+  return providers.filter(
+    (provider) => !Array.isArray(provider.purposes)
+      || provider.purposes.length === 0
+      || provider.purposes.includes(group),
+  );
+}
+
+function noEligibleProviderError(purpose) {
+  const group = purposeGroup(purpose);
+  const error = new Error(`No provider is eligible for the ${group} purpose group`);
+  error.code = 'TETHER_PROVIDER_PURPOSE_UNAVAILABLE';
+  error.purposeGroup = group;
+  return error;
+}
+
 function modelForPurpose(provider, purpose) {
   switch (purpose) {
     case 'fold':
@@ -40,17 +91,43 @@ function modelForPurpose(provider, purpose) {
   }
 }
 
+// Background work must always send an explicit max_tokens. Without one the
+// request omits the field entirely (see fetchCompletion), and a reasoning model
+// will keep generating until the socket times out — the fold never lands, the
+// transcript never shrinks, and the next turn carries even more context. That
+// exact chain took an agent offline for a full day on 2026-08-08: foldMaxTokens
+// was simply absent from its config, so folds ran 138s against a 180s timeout,
+// failed, and the context grew to 235k tokens until upstream moderation refused
+// every request. A missing config key must not silently disable a safety bound.
+//
+// Chat is deliberately exempt: letting the model decide its own reply length is
+// the desired behaviour there.
+const DEFAULT_MAX_TOKENS_BY_PURPOSE = {
+  fold: 8000,
+  'memory-card': 8000,
+  'semantic-extract': 16000,
+  'semantic-extract-repair': 16000,
+  'semantic-extract-audit': 16000,
+  'semantic-verify': 4000,
+  'semantic-high-risk': 4000,
+};
+
 function maxTokensForPurpose(provider, purpose) {
   switch (purpose) {
-    case 'fold': return provider.foldMaxTokens;
-    case 'memory-card': return provider.memoryMaxTokens;
+    case 'fold': return provider.foldMaxTokens || DEFAULT_MAX_TOKENS_BY_PURPOSE.fold;
+    case 'memory-card': return provider.memoryMaxTokens
+      || DEFAULT_MAX_TOKENS_BY_PURPOSE['memory-card'];
     case 'semantic-extract':
     case 'semantic-extract-repair':
     case 'semantic-extract-audit':
-      return provider.semanticExtractorMaxTokens || provider.memoryMaxTokens;
-    case 'semantic-verify': return provider.semanticVerifierMaxTokens;
+      return provider.semanticExtractorMaxTokens
+        || provider.memoryMaxTokens
+        || DEFAULT_MAX_TOKENS_BY_PURPOSE['semantic-extract'];
+    case 'semantic-verify': return provider.semanticVerifierMaxTokens
+      || DEFAULT_MAX_TOKENS_BY_PURPOSE['semantic-verify'];
     case 'semantic-high-risk': return provider.semanticHighRiskMaxTokens
-      || provider.semanticVerifierMaxTokens;
+      || provider.semanticVerifierMaxTokens
+      || DEFAULT_MAX_TOKENS_BY_PURPOSE['semantic-high-risk'];
     default: return provider.maxTokens;
   }
 }
@@ -212,7 +289,7 @@ async function fetchCompletion({
   const baseUrl = validatedProviderUrl(provider.baseUrl);
   const providerMessages = messagesForProvider(messages, sourceParts, provider);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Number(provider.timeoutMs || timeoutMs));
+  const timer = setTimeout(() => controller.abort(), timeoutForPurpose(provider, purpose, timeoutMs));
   timer.unref?.();
   let response;
   try {
@@ -250,6 +327,26 @@ async function fetchCompletion({
   return { ok: true, payload, message: structuredClone(rawMessage), model };
 }
 
+// Transient failures deserve a second attempt on the same provider before
+// falling through to the next one: a dropped socket or a gateway hiccup costs
+// nothing to retry, while switching providers may mean a different model, a
+// different account, and (for personas) a different voice. Permanent failures —
+// bad credentials, refused content, exhausted balance — are not retried; the
+// answer will not change and each attempt still costs money.
+const PERMANENT_ERROR_PATTERN =
+  /invalid[_ ]?(api[_ ]?key|token)|unauthor|forbidden|insufficient|quota|balance|inappropriate|prohibited|safety|content[_ ]filter|not[_ ]found|unpurchased|access ?denied|(?:daily|weekly|monthly)\s+(?:token\s+)?limit|exceeded.*(?:daily|weekly|monthly).*limit/i;
+
+function isTransientError(error) {
+  const message = String(error?.message || '');
+  if (PERMANENT_ERROR_PATTERN.test(message)) return false;
+  if (/timeout|aborted|fetch failed|ECONNRESET|EPIPE|ETIMEDOUT|socket|network/i.test(message)) return true;
+  const status = Number(error?.status);
+  if (status >= 500 || status === 429) return true;
+  // Gateways sometimes surface upstream hiccups as an opaque code with no detail;
+  // treating those as transient is what makes intermittent failures survivable.
+  return /^HTTP 5|openai_error|internal[_ ]error|service[_ ]unavailable/i.test(message);
+}
+
 function ambiguousInferenceError(causalId, cause) {
   const error = new Error('Provider request may have completed without a durable response; refusing reinference', {
     cause,
@@ -271,23 +368,40 @@ function createOpenAICompatibleProvider({
 
   async function respondWithoutTools({ messages, purpose, sourceParts }) {
     const failures = [];
-    for (const provider of providers) {
-      try {
-        const completion = await fetchCompletion({
-          provider,
-          messages,
-          purpose,
-          sourceParts,
-          tools: [],
-          fetchImpl,
-          timeoutMs,
-        });
-        if (!completion.ok) throw new Error(completion.message);
-        const text = completionTextFromMessage(completion.message);
-        if (!text) throw new Error('Provider returned an empty completion');
-        return providerResult(provider, completion.model, purpose, completion.payload, completion.message);
-      } catch (error) {
-        failures.push({ providerId: provider.id, message: error.message });
+    const eligibleProviders = providersForPurpose(providers, purpose);
+    if (!eligibleProviders.length) throw noEligibleProviderError(purpose);
+    for (const provider of eligibleProviders) {
+      const attempts = Math.max(1, Number(provider.maxAttempts) || 2);
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          const completion = await fetchCompletion({
+            provider,
+            messages,
+            purpose,
+            sourceParts,
+            tools: [],
+            fetchImpl,
+            timeoutMs,
+          });
+          if (!completion.ok) {
+            const error = new Error(completion.message);
+            error.status = completion.status;
+            throw error;
+          }
+          const text = completionTextFromMessage(completion.message);
+          if (!text) throw new Error('Provider returned an empty completion');
+          return providerResult(provider, completion.model, purpose, completion.payload, completion.message);
+        } catch (error) {
+          const exhausted = attempt >= attempts;
+          if (exhausted || !isTransientError(error)) {
+            failures.push({
+              providerId: provider.id,
+              message: error.message,
+              ...(attempt > 1 ? { attempts: attempt } : {}),
+            });
+            break;
+          }
+        }
       }
     }
     const error = new Error('Every configured provider failed');
@@ -388,14 +502,20 @@ function createOpenAICompatibleProvider({
       startProviderIndex = Number(lastEvent.providerIndex) + 1;
     }
 
+    const eligibleIds = new Set(providersForPurpose(providers, purpose).map((p) => p.id));
+    if (!eligibleIds.size) throw noEligibleProviderError(purpose);
     while (iteration <= maxIterations) {
       const tools = iteration < maxIterations ? definitions : [];
       const failures = [];
       let completion = null;
       let selectedProvider = null;
       let selectedProviderIndex = -1;
+      // Keep the original index space: providerIndex is persisted in the tool
+      // transaction journal for resume, so filtering the array would misalign it
+      // after a restart. Skip ineligible providers instead of re-indexing.
       for (let providerIndex = startProviderIndex; providerIndex < providers.length; providerIndex += 1) {
         const provider = providers[providerIndex];
+        if (!eligibleIds.has(provider.id)) continue;
         try {
           if (!provider.baseUrl || !provider.model) throw new Error('baseUrl and model are required');
           validatedProviderUrl(provider.baseUrl);
@@ -549,7 +669,9 @@ function createOpenAICompatibleProvider({
       const input = (Array.isArray(texts) ? texts : []).map((text) => String(text));
       if (!input.length) throw new Error('Embedding input is empty');
       const failures = [];
-      for (const provider of providers) {
+      const eligibleProviders = providersForPurpose(providers, purpose);
+      if (!eligibleProviders.length) throw noEligibleProviderError(purpose);
+      for (const provider of eligibleProviders) {
         if (!provider.embeddingsUrl || !provider.embeddingModel) continue;
         try {
           validatedProviderUrl(provider.embeddingsUrl, 'embeddingsUrl');

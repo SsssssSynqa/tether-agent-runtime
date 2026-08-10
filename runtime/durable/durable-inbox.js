@@ -201,6 +201,29 @@ class DurableInbox {
     this.append({ state: 'done', updateId: id, update: this.updates.get(id) });
   }
 
+  archiveTerminal(updateId, reason = 'operator-confirmed-no-replay') {
+    const id = Number(updateId);
+    if (!Number.isFinite(id)) throw new Error('terminal archive 缺少合法 updateId');
+    const prior = this.states.get(id);
+    if (!['dead-letter', 'operator-paused'].includes(prior?.state)) {
+      throw new Error(`update ${id} 不是可归档的 dead-letter/operator-paused`);
+    }
+    const update = prior.update || this.updates.get(id);
+    if (!update) {
+      throw new Error(`update ${id} 缺少原始 update；请使用 archiveUnrecoverableOrphan`);
+    }
+    this.inflight.delete(id);
+    return this.append({
+      state: 'done',
+      updateId: id,
+      update,
+      attempts: Number(prior.attempts || 0),
+      disposition: 'operator-archived-no-replay',
+      archivedFromState: prior.state,
+      reason: String(reason || 'operator-confirmed-no-replay').slice(0, 200),
+    });
+  }
+
   archiveUnrecoverableOrphan(updateId, reason = 'operator-confirmed-original-unrecoverable') {
     const id = Number(updateId);
     if (!Number.isFinite(id)) throw new Error('orphan archive 缺少合法 updateId');

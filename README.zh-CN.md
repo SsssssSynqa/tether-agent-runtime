@@ -98,7 +98,9 @@ Tether 的记忆不只依靠 `AGENTS.md`，但也不能没有 `AGENTS.md`。一�
 | `minimumRawTailRounds` | 8 | 始终保留的最近原文轮数 |
 | `summaryHistoryLimit` | 64 | 活跃摘要的保留上限 |
 
-折叠不是删除。完整对话仍保存在只追加 transcript 中；折叠摘要必须保留事件顺序、发言归属和未完成事项，并记录对应的来源范围。如果折叠失败，Tether 会继续使用上一份有效上下文，而不是为了节省 token 悄悄丢失历史。
+折叠不会堵住回复。模型答完后，Tether 会先把这一轮同步、持久化地写入只追加 transcript 与 active history，再把折叠推到后台单飞执行；即使维护渠道很慢，回复链路也不再等它。后台结果只有在它总结的那段原文仍是 active history 的精确前缀时才会提交，因此折叠期间新到的消息不会被旧快照覆盖。
+
+折叠也不是删除。完整对话仍保存在只追加 transcript 中；折叠摘要必须保留事件顺序、发言归属和未完成事项，并记录对应的来源范围。如果折叠失败，Tether 会继续使用上一份有效上下文，而不是为了节省 token 悄悄丢失历史。
 
 ### 3. 日卡与周卡：为 API Agent 保存叙事
 
@@ -334,6 +336,7 @@ node bin/tether-ops.cjs dead-letters ./config.json    # 死信清点
 node bin/tether-tools.cjs approvals ./config.json     # 工具审批
 
 # 下列命令离线运行：先停 supervisor 和 runtime。
+node bin/tether-ops.cjs archive <update-id> --confirm-no-replay ./config.json
 node bin/tether-memory.cjs status ./config.json
 node bin/tether-memory.cjs rebuild-semantic ./config.json
 node bin/tether-memory.cjs backfill-vectors ./config.json

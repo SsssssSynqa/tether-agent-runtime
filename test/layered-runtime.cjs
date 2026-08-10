@@ -8,12 +8,43 @@ const path = require('node:path');
 
 const { createMemoryChannel } = require('../runtime/channels/memory-channel.cjs');
 const { LayeredMemory } = require('../runtime/memory/layered-memory.cjs');
+const { SemanticMemoryManager } = require('../runtime/memory/semantic-memory-manager.js');
 const { SelfsameSession } = require('../runtime/selfsame-session.cjs');
 const { TetherRuntime } = require('../runtime/tether-runtime.cjs');
 
 async function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tether-layered-runtime-'));
   try {
+    const priorityManager = new SemanticMemoryManager({
+      directory: path.join(root, 'semantic-priority'),
+      mode: 'cards',
+      extract: async () => ({ noSignal: true, claims: [], events: [] }),
+      verify: async () => ({ verdicts: [] }),
+      verifyHighRisk: async () => ({ verdicts: [] }),
+      log: () => {},
+    });
+    priorityManager._appendQueue({
+      schemaVersion: 1,
+      packetId: 'packet:ordinary-backlog',
+      status: 'pending',
+      attempts: 0,
+      nextRetryAt: null,
+      queueClass: 'live',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+      packet: { packetId: 'packet:ordinary-backlog' },
+    });
+    priorityManager._appendQueue({
+      schemaVersion: 1,
+      packetId: 'packet:partial-priority',
+      status: 'partial_review_pending',
+      attempts: 1,
+      nextRetryAt: null,
+      queueClass: 'live',
+      updatedAt: '2026-07-29T06:00:00.000Z',
+      packet: { packetId: 'packet:partial-priority' },
+    });
+    assert.equal(priorityManager._nextPending().packetId, 'packet:partial-priority');
+
     const calls = [];
     const embeddingCalls = [];
     const provider = {

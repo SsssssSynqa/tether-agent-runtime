@@ -115,9 +115,15 @@ const { runOpsCommand, usage: opsCommandUsage } = require('../bin/tether-ops.cjs
 const { normalizeCardUserAddress } = loadSharedMemoryModule('memory-card-address.js');
 const { cardMarkdownPath } = loadSharedMemoryModule('memory-card-files.js');
 const { MemoryCardManager } = loadSharedMemoryModule('memory-card-manager.js');
+const { ConversationHistory } = loadSharedMemoryModule('conversation-history.js');
 const { normalizeMemoryPolicy } = loadSharedMemoryModule('memory-policy.js');
 const { roundSource } = loadSharedMemoryModule('memory-sources.js');
-const { operationalDayKey } = loadSharedMemoryModule('memory-time.js');
+const {
+  assertNoControlPlaneArtifact,
+  parseLegacyTelegramGroupPrompt,
+  sanitizeDerivedMemoryText,
+} = loadSharedMemoryModule('control-plane-boundary.js');
+const { dayPeriod, operationalDayKey } = loadSharedMemoryModule('memory-time.js');
 
 function makeFlakyChannel(id) {
   let handler = null;
@@ -212,6 +218,321 @@ async function main() {
       '2030-04-11',
       genericPolicy,
     ), 'utf8').startsWith('# Anchor daily · 2030-04-11'));
+
+    const archivedEvidenceHistory = {
+      getData: () => ({ summaryHistory: [], rounds: [] }),
+      knownMemorySourceIds: () => [],
+    };
+    const archivedEvidenceCards = new MemoryCardManager({
+      history: archivedEvidenceHistory,
+      directory: path.join(root, 'archived-evidence-cards'),
+      memoryPolicy: genericPolicy,
+      policy: 'lossless',
+      now: () => '2030-04-12T16:00:00.000Z',
+      log: () => {},
+    });
+    const archivedSourceId = 'memory-source:1234567890abcdef12345678';
+    const archivedCard = archivedEvidenceCards.store.appendCard({
+      cardType: 'day',
+      period: dayPeriod('2030-04-11', genericPolicy.time),
+      sourceIds: [archivedSourceId],
+      content: 'Keeper preserved a source that has left the active window.',
+      policy: 'lossless',
+    }).card;
+    assert.deepEqual(
+      archivedEvidenceCards.compile().manifest.missingRequiredIds,
+      [archivedSourceId],
+    );
+    assert.equal(archivedEvidenceCards.store.recordArchivedSourceEvidence({
+      sourceId: archivedSourceId,
+      cardIds: [archivedCard.id],
+    }).duplicate, false);
+    assert.equal(archivedEvidenceCards.store.recordArchivedSourceEvidence({
+      sourceId: archivedSourceId,
+      cardIds: [archivedCard.id],
+    }).duplicate, true);
+    const archivedEvidenceCompile = archivedEvidenceCards.compile();
+    assert.deepEqual(archivedEvidenceCompile.manifest.missingRequiredIds, []);
+    assert.deepEqual(archivedEvidenceCompile.manifest.archivedRequiredIds, [archivedSourceId]);
+
+    const hierarchicalCalls = [];
+    const hierarchicalCards = new MemoryCardManager({
+      history: genericHistory,
+      directory: path.join(root, 'hierarchical-cards'),
+      memoryPolicy: genericPolicy,
+      policy: 'lossless',
+      maxInputTokens: 4_000,
+      estimateTokens: (text) => String(text || '').length,
+      generateCard: async (_messages, metadata) => {
+        hierarchicalCalls.push(structuredClone(metadata));
+        if (metadata.stage === 'source-chunk') {
+          return `Chunk ${metadata.chunkIndex} preserved ${metadata.sourceIds.join(', ')}.`;
+        }
+        return 'Keeper requested durable memory and Anchor preserved every source.';
+      },
+      log: () => {},
+    });
+    const hierarchicalInputs = Array.from({ length: 5 }, (_, index) => ({
+      id: `large-source-${index + 1}`,
+      text: `Human：Keeper source ${index + 1}.\nAnchor：${'evidence '.repeat(145)}`,
+    }));
+    const hierarchicalSourceIds = hierarchicalInputs.map((input) => input.id);
+    const hierarchicalResult = await hierarchicalCards._generate({
+      cardType: 'day',
+      period: dayPeriod('2030-04-11', genericPolicy.time),
+      inputs: hierarchicalInputs,
+      sourceIds: hierarchicalSourceIds,
+    });
+    const chunkCalls = hierarchicalCalls.filter((call) => call.stage === 'source-chunk');
+    const finalCall = hierarchicalCalls.at(-1);
+    assert(chunkCalls.length > 1, 'oversized day card input must be reduced in multiple chunks');
+    assert.deepEqual(chunkCalls.flatMap((call) => call.sourceIds), hierarchicalSourceIds);
+    assert.equal(finalCall.hierarchy.chunkCount, chunkCalls.length);
+    assert.equal(finalCall.hierarchy.sourceCount, hierarchicalSourceIds.length);
+    assert.match(hierarchicalResult.content, /every source/);
+    hierarchicalCalls.length = 0;
+    await hierarchicalCards._generate({
+      cardType: 'day',
+      period: dayPeriod('2030-04-11', genericPolicy.time),
+      inputs: hierarchicalInputs,
+      sourceIds: hierarchicalSourceIds,
+    });
+    assert.equal(
+      hierarchicalCalls.filter((call) => call.stage === 'source-chunk').length,
+      0,
+      'a retry must resume from fsynced chunks instead of regenerating them',
+    );
+
+    const legacyControlLine = '她单独跟你说话时，一个字都不能漏；但这里是群聊——'
+      + '漏掉的消息只是环境音，不是欠债。不要把整个群当成她。';
+    const legacyGroupPrompt = [
+      legacyControlLine,
+      '这是 Telegram 群“Archive room”的一批连续消息。',
+      '群聊安全约定：本请求没有本地文件。',
+      '只输出严格 JSON，不要加代码围栏：',
+      '{"replies":[{"text":"reply","replyToMessageId":1}]}',
+      '【本批消息 · 1 条】replyToMessageId 只能来自这里的 messageId（或 null）：',
+      JSON.stringify({
+        messageId: 14,
+        sentAt: '2030-04-11T12:00:00.000Z',
+        sender: 'Keeper',
+        username: 'keeper',
+        senderIsBot: false,
+        text: 'Anchor, preserve this actual message.',
+        images: [],
+      }),
+    ].join('\n');
+    const recoveredLegacy = parseLegacyTelegramGroupPrompt(legacyGroupPrompt);
+    assert.equal(recoveredLegacy.length, 1);
+    assert.equal(recoveredLegacy[0].senderDisplayName, 'Keeper');
+    assert.equal(recoveredLegacy[0].text, 'Anchor, preserve this actual message.');
+    assert.doesNotMatch(JSON.stringify(recoveredLegacy), /不要把整个群当成她/);
+
+    const mixedDerivedMemory = [
+      '## Real event',
+      `Keeper 在系统层反复给 Anchor 同一条群聊边界指令：${legacyControlLine}`,
+      'Keeper 发出 /anchor_quiet，Anchor 切回安静模式。',
+      '',
+      '## Keeper 群聊边界指令（长期指令）',
+      `${legacyControlLine}此为稳定长期指令。`,
+      '',
+      '## Another real event',
+      'Keeper asked Anchor to preserve a real fact.',
+    ].join('\n');
+    const sanitizedDerived = sanitizeDerivedMemoryText(mixedDerivedMemory);
+    assert.match(sanitizedDerived, /\/anchor_quiet/);
+    assert.match(sanitizedDerived, /Another real event/);
+    assert.doesNotMatch(sanitizedDerived, /群聊边界指令/);
+    assert.doesNotThrow(() => assertNoControlPlaneArtifact(sanitizedDerived));
+
+    const legacySemanticMemory = Object.create(LayeredMemory.prototype);
+    legacySemanticMemory.policy = genericPolicy;
+    legacySemanticMemory.entities = [{
+      entityId: genericPolicy.owner.entityId,
+      canonicalDisplayName: 'Keeper',
+      aliasDisplayNames: ['LegacyName'],
+    }];
+    legacySemanticMemory.semantic = {
+      entityResolver: {
+        canonicalEntityIdForMessage: ({ senderDisplayName }) => (
+          senderDisplayName === 'Keeper' ? genericPolicy.owner.entityId : null
+        ),
+        canonicalDisplayName: (entityId) => (
+          entityId === genericPolicy.owner.entityId ? 'Keeper' : entityId
+        ),
+      },
+    };
+    const recoveredPacket = legacySemanticMemory._semanticPacketInput(
+      legacyGroupPrompt,
+      'Anchor acknowledged the actual message.',
+      {
+        source: 'telegram',
+        chatId: '-77',
+        receivedAt: '2030-04-11T12:00:02.000Z',
+        completedAt: '2030-04-11T12:00:03.000Z',
+      },
+    );
+    assert.equal(recoveredPacket.rawMessages[0].senderEntityId, genericPolicy.owner.entityId);
+    assert.equal(recoveredPacket.rawMessages[0].text, 'Anchor, preserve this actual message.');
+    assert.doesNotMatch(
+      recoveredPacket.rawMessages.map((message) => message.text).join('\n'),
+      /不要把整个群当成她/,
+    );
+    assert.equal(legacySemanticMemory._semanticPacketInput('control only', '', {
+      semanticRawMessages: [{
+        evidenceClass: 'control',
+        text: 'runtime rule',
+      }],
+    }), null);
+    assert.notEqual(legacySemanticMemory._semanticSender({
+      legacyRecovered: true,
+      senderDisplayName: 'Unregistered group member',
+      senderUsername: 'unregistered_member',
+      source: 'telegram',
+    }), genericPolicy.owner.entityId);
+
+    const contaminatedCards = new MemoryCardManager({
+      history: genericHistory,
+      directory: path.join(root, 'contaminated-cards'),
+      memoryPolicy: genericPolicy,
+      policy: 'lossless',
+      now: () => '2030-04-12T16:00:00.000Z',
+      log: () => {},
+    });
+    contaminatedCards.store.appendCard({
+      cardType: 'day',
+      period: dayPeriod('2030-04-11', genericPolicy.time),
+      sourceIds: ['legacy-rendered-provider-request'],
+      content: `## False control\n${legacyControlLine}\n\n## Real memory\nKeeper preserved the actual message.`,
+      policy: 'lossless',
+    });
+    const safeCompile = contaminatedCards.compile();
+    assert.match(safeCompile.text, /Keeper preserved the actual message/);
+    assert.doesNotMatch(safeCompile.text, /不要把整个群当成她/);
+
+    const rejectingCards = new MemoryCardManager({
+      history: genericHistory,
+      directory: path.join(root, 'rejecting-cards'),
+      memoryPolicy: genericPolicy,
+      policy: 'lossless',
+      generateCard: async () => `## False\n${legacyControlLine}`,
+      log: () => {},
+    });
+    await assert.rejects(
+      rejectingCards._generate({
+        cardType: 'day',
+        period: dayPeriod('2030-04-11', genericPolicy.time),
+        inputs: [{ id: 'real-source', text: 'Human：Keeper preserved a real fact.' }],
+        sourceIds: ['real-source'],
+      }),
+      (error) => error.code === 'MEMORY_CONTROL_PLANE_CONTAMINATION',
+    );
+    const guardedFoldHistory = new ConversationHistory({
+      historyFile: path.join(root, 'guarded-fold-history.json'),
+      transcriptFile: path.join(root, 'guarded-fold-transcript.jsonl'),
+      transcriptAssetDir: path.join(root, 'guarded-fold-assets'),
+      foldLogDir: path.join(root, 'guarded-folds'),
+      memoryPolicy: genericPolicy,
+      foldRequest: async () => ({
+        choices: [{
+          finish_reason: 'stop',
+          message: { content: `False owner instruction: ${legacyControlLine}` },
+        }],
+      }),
+      log: () => {},
+    });
+    assert.equal(await guardedFoldHistory._generateFoldSummary([{
+      ts: '2030-04-11T12:00:00.000Z',
+      user: 'Keeper preserved a real fact.',
+      assistant: 'Anchor acknowledged it.',
+      provenance: {},
+    }], 1), false);
+    assert.equal(guardedFoldHistory.getData().summaryHistory.length, 0);
+
+    // Folding is background work: the reply path durably commits the raw and
+    // active turn first, then returns without waiting for provider latency.
+    // A late fold may remove only the exact prefix it summarized; turns that
+    // arrive while inference is running must remain active.
+    {
+      let releaseFold;
+      let startedFold;
+      let concurrentFolds = 0;
+      let maxConcurrentFolds = 0;
+      let foldCalls = 0;
+      const foldStarted = new Promise((resolve) => { startedFold = resolve; });
+      const foldGate = new Promise((resolve) => { releaseFold = resolve; });
+      const backgroundHistory = new ConversationHistory({
+        historyFile: path.join(root, 'background-fold-history.json'),
+        transcriptFile: path.join(root, 'background-fold-transcript.jsonl'),
+        transcriptAssetDir: path.join(root, 'background-fold-assets'),
+        foldLogDir: path.join(root, 'background-folds'),
+        memoryPolicy: genericPolicy,
+        roundsBudget: 2,
+        foldRequest: async () => {
+          foldCalls += 1;
+          concurrentFolds += 1;
+          maxConcurrentFolds = Math.max(maxConcurrentFolds, concurrentFolds);
+          startedFold();
+          await foldGate;
+          concurrentFolds -= 1;
+          return {
+            choices: [{ finish_reason: 'stop', message: { content: 'verified background fold' } }],
+          };
+        },
+        log: () => {},
+      });
+      for (let index = 1; index <= 4; index += 1) {
+        await backgroundHistory.appendTurn(`u${index}`, `a${index}`, {
+          causalIds: [`background-${index}`],
+        });
+      }
+      const fifth = backgroundHistory.appendTurn('u5', 'a5', {
+        causalIds: ['background-5'],
+      });
+      assert.equal(
+        await Promise.race([
+          fifth.then(() => 'committed'),
+          new Promise((resolve) => setTimeout(() => resolve('blocked'), 100)),
+        ]),
+        'committed',
+        'appendTurn must not wait for slow fold inference',
+      );
+      await foldStarted;
+      await backgroundHistory.appendTurn('u6', 'a6', {
+        causalIds: ['background-6'],
+      });
+      assert.equal(backgroundHistory.getData().rounds.at(-1).user, 'u6');
+      releaseFold();
+      await backgroundHistory.waitForBackgroundFolds();
+      const folded = backgroundHistory.getData();
+      assert.equal(foldCalls, 1);
+      assert.equal(maxConcurrentFolds, 1, 'fold inference must be single-flight');
+      assert.deepEqual(folded.rounds.map((round) => round.user), ['u3', 'u4', 'u5', 'u6']);
+      assert.equal(folded.summaryHistory.length, 1);
+      assert.match(folded.summaryHistory[0].text, /verified background fold/);
+      backgroundHistory.close();
+
+      const failingHistory = new ConversationHistory({
+        historyFile: path.join(root, 'failing-background-fold-history.json'),
+        transcriptFile: path.join(root, 'failing-background-fold-transcript.jsonl'),
+        transcriptAssetDir: path.join(root, 'failing-background-fold-assets'),
+        foldLogDir: path.join(root, 'failing-background-folds'),
+        memoryPolicy: genericPolicy,
+        roundsBudget: 2,
+        foldRequest: async () => { throw new Error('synthetic fold outage'); },
+        log: () => {},
+      });
+      for (let index = 1; index <= 5; index += 1) {
+        await failingHistory.appendTurn(`failed-u${index}`, `failed-a${index}`, {
+          causalIds: [`failed-background-${index}`],
+        });
+      }
+      await failingHistory.waitForBackgroundFolds();
+      const afterFailure = failingHistory.getData();
+      assert.equal(afterFailure.rounds.length, 5, 'fold failure must preserve active rounds');
+      assert.equal(afterFailure.foldState.consecutiveFailures, 1);
+      failingHistory.close();
+    }
 
     const publicRoot = path.join(__dirname, '..');
     const exampleConfigPath = fs.existsSync(path.join(publicRoot, 'config.example.json'))
@@ -1296,6 +1617,9 @@ async function main() {
     ]);
     assert.deepEqual(groupBatch.targetMessageIds, [14, 16]);
     assert.match(groupBatch.providerText, /TARGET_JSONL/);
+    assert.match(groupBatch.systemPrompt, /Telegram group response contract/);
+    assert.doesNotMatch(groupBatch.historyText, /TARGET_JSONL|replyToMessageId|response contract/);
+    assert.match(groupBatch.historyText, /Anchor, second line/);
     const validGroupEnvelope = parseTelegramGroupReplyEnvelope(
       '{"replies":[{"text":"Acknowledged.","replyToMessageId":16}]}',
       groupBatch.targetMessageIds,
@@ -2423,6 +2747,27 @@ async function main() {
     backupInbox.markProcessing(501, true);
     backupInbox.markOperatorPaused(501, new Error('synthetic ambiguous delivery'));
     assert.equal(backupInbox.status().operatorPaused, 1);
+    const archivedUpdate = {
+      update_id: 502,
+      message: {
+        message_id: 52,
+        text: 'stale payload that must not replay',
+        chat: { id: 5, type: 'private' },
+      },
+    };
+    backupInbox.receive(archivedUpdate);
+    backupInbox.markProcessing(502);
+    backupInbox.markFailed(502, new Error('synthetic permanent failure'));
+    const archivedTerminal = backupInbox.archiveTerminal(502, 'reviewed stale; no replay');
+    assert.equal(archivedTerminal.state, 'done');
+    assert.equal(archivedTerminal.disposition, 'operator-archived-no-replay');
+    assert.equal(archivedTerminal.archivedFromState, 'dead-letter');
+    assert.equal(backupInbox.inspect(502).state, 'done');
+    assert.equal(backupInbox.pendingEntries().some((entry) => entry.updateId === 502), false);
+    assert.throws(
+      () => backupInbox.archiveTerminal(502, 'duplicate archive'),
+      /不是可归档/,
+    );
     backupInbox.append({ state: 'failed', updateId: 999, attempts: 1 });
     assert.equal(backupInbox.status().unrecoverableOrphans, 1);
     backupInbox.archiveUnrecoverableOrphan(999, 'synthetic original unavailable');
@@ -2593,6 +2938,18 @@ async function main() {
     assert.equal(runOpsCommand([
       'requeue-done', '501', '--confirm-redeliver', opsConfigPath,
     ]).state, 'received');
+    opsInbox.markProcessing(501, true);
+    opsInbox.markOperatorPaused(501, new Error('review required'));
+    assert.throws(
+      () => runOpsCommand(['archive', '501', opsConfigPath]),
+      /Usage:/,
+    );
+    const cliArchived = runOpsCommand([
+      'archive', '501', '--confirm-no-replay', opsConfigPath,
+    ]);
+    assert.equal(cliArchived.state, 'done');
+    assert.equal(cliArchived.disposition, 'operator-archived-no-replay');
+    assert.equal(cliArchived.archivedFromState, 'operator-paused');
     const tamperedBackupTranscript = path.join(
       createdBackup.backupPath,
       'data',
@@ -2791,6 +3148,255 @@ async function main() {
       })() }),
       (error) => error.code === 'TETHER_CAUSAL_CORRUPT',
     );
+
+    // ── provider purpose routing, background bounds, retry policy (2026-08-09) ──
+    {
+      const okBody = {
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: {},
+      };
+      const baseProvider = (overrides = {}) => ({
+        id: 'p', label: 'p', adapter: 'openai-compatible',
+        baseUrl: 'https://x.invalid/v1/chat/completions', apiKey: 'k', model: 'M',
+        ...overrides,
+      });
+
+      // Background purposes must always carry an explicit max_tokens even when the
+      // config omits every *MaxTokens key. Without it a reasoning model generates
+      // until the socket dies: the fold never lands and the transcript never shrinks.
+      const bodies = [];
+      const recordFetch = async (_url, init) => {
+        bodies.push(JSON.parse(init.body));
+        return { ok: true, status: 200, json: async () => okBody };
+      };
+      const bare = createOpenAICompatibleProvider({
+        providers: [baseProvider()],
+        fetchImpl: recordFetch,
+      });
+      for (const purpose of ['fold', 'memory-card', 'semantic-extract', 'semantic-verify']) {
+        bodies.length = 0;
+        await bare.respond({ messages: [{ role: 'user', content: 'x' }], purpose });
+        assert.ok(
+          Number(bodies[0].max_tokens) > 0,
+          `${purpose} must send max_tokens even with no *MaxTokens configured`,
+        );
+      }
+      bodies.length = 0;
+      await bare.respond({ messages: [{ role: 'user', content: 'x' }], purpose: undefined });
+      assert.equal(bodies[0].max_tokens, undefined, 'chat may omit max_tokens');
+
+      // purposes restricts a provider to one group; omitting it keeps both.
+      const routed = [];
+      const routeFetch = async (url) => {
+        routed.push(String(url));
+        return { ok: true, status: 200, json: async () => okBody };
+      };
+      const split = createOpenAICompatibleProvider({
+        providers: [
+          baseProvider({ id: 'bg', baseUrl: 'https://bg.invalid/v1/chat/completions', purposes: ['background'] }),
+          baseProvider({ id: 'voice', baseUrl: 'https://voice.invalid/v1/chat/completions', purposes: ['chat'] }),
+        ],
+        fetchImpl: routeFetch,
+      });
+      routed.length = 0;
+      await split.respond({ messages: [{ role: 'user', content: 'x' }], purpose: 'fold' });
+      assert.match(routed[0], /bg\.invalid/, 'background work must use the background-only provider');
+      routed.length = 0;
+      await split.respond({ messages: [{ role: 'user', content: 'x' }], purpose: undefined });
+      assert.match(routed[0], /voice\.invalid/, 'chat must skip a background-only provider');
+
+      // A purpose boundary is an identity/billing boundary, not a preference.
+      // If no eligible provider exists, fail before network I/O instead of
+      // silently crossing from the agent's voice into its summarisation model.
+      for (const [providers, purpose, expectedGroup] of [
+        [[baseProvider({ purposes: ['background'] })], undefined, 'chat'],
+        [[baseProvider({ purposes: ['chat'] })], 'fold', 'background'],
+      ]) {
+        let calls = 0;
+        const isolated = createOpenAICompatibleProvider({
+          providers,
+          fetchImpl: async () => { calls += 1; return { ok: true, status: 200, json: async () => okBody }; },
+        });
+        await assert.rejects(
+          () => isolated.respond({ messages: [{ role: 'user', content: 'x' }], purpose }),
+          (error) => error?.code === 'TETHER_PROVIDER_PURPOSE_UNAVAILABLE'
+            && error?.purposeGroup === expectedGroup,
+          `${expectedGroup} must fail closed when every provider is restricted away`,
+        );
+        assert.equal(calls, 0, 'purpose mismatch must fail before provider network I/O');
+      }
+
+      // Background timeout defaults to 2x so long folds are not aborted by a
+      // timeout sized for interactive replies.
+      const slowFetch = async (_url, init) => new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => resolve({ ok: true, status: 200, json: async () => okBody }),
+          120,
+        );
+        init.signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')); });
+      });
+      const tight = createOpenAICompatibleProvider({
+        providers: [baseProvider({ timeoutMs: 80 })],
+        fetchImpl: slowFetch,
+      });
+      await assert.rejects(
+        () => tight.respond({ messages: [{ role: 'user', content: 'x' }], purpose: undefined }),
+        'chat must honour the tight timeout',
+      );
+      await tight.respond({ messages: [{ role: 'user', content: 'x' }], purpose: 'fold' });
+
+      // Transient failures retry on the same provider; permanent ones do not.
+      const retryCase = async (failMessage, failStatus) => {
+        let calls = 0;
+        const client = createOpenAICompatibleProvider({
+          providers: [baseProvider()],
+          fetchImpl: async () => {
+            calls += 1;
+            if (calls === 1) {
+              return { ok: false, status: failStatus, json: async () => ({ error: { message: failMessage } }) };
+            }
+            return { ok: true, status: 200, json: async () => okBody };
+          },
+        });
+        let failed = false;
+        try {
+          await client.respond({ messages: [{ role: 'user', content: 'x' }], purpose: 'fold' });
+        } catch { failed = true; }
+        return { calls, failed };
+      };
+      assert.deepEqual(
+        await retryCase('openai_error', 500),
+        { calls: 2, failed: false },
+        'transient gateway errors must retry on the same provider',
+      );
+      assert.deepEqual(
+        await retryCase('Insufficient Balance', 402),
+        { calls: 1, failed: true },
+        'exhausted balance must not be retried',
+      );
+      assert.deepEqual(
+        await retryCase('Input text data may contain inappropriate content', 400),
+        { calls: 1, failed: true },
+        'refused content must not be retried',
+      );
+      assert.deepEqual(
+        await retryCase('You have exceeded your daily token limit. Usage resets at midnight UTC.', 429),
+        { calls: 1, failed: true },
+        'a daily quota reset cannot recover through an immediate same-provider retry',
+      );
+
+      // Config validation accepts only the two known purpose groups.
+      assert.throws(
+        () => validateConfig({
+          agent: { id: 'a', displayName: 'A' },
+          owner: { entityId: 'o', displayName: 'O' },
+          storage: { root: './data' },
+          providers: [{
+            id: 'p', label: 'P', adapter: 'openai-compatible', model: 'M',
+            baseUrl: 'https://example.invalid/v1/chat/completions',
+            authentication: 'none', purposes: ['fold'],
+          }],
+        }),
+        /purposes accepts only/,
+      );
+      assert.throws(
+        () => validateConfig({
+          agent: { id: 'a', displayName: 'A' },
+          owner: { entityId: 'o', displayName: 'O' },
+          storage: { root: './data' },
+          providers: [{
+            id: 'p', label: 'P', adapter: 'openai-compatible', model: 'M',
+            baseUrl: 'https://example.invalid/v1/chat/completions',
+            authentication: 'none', backgroundTimeoutMs: 0,
+          }],
+        }),
+        /backgroundTimeoutMs must be a positive number/,
+      );
+      assert.throws(
+        () => validateConfig({
+          agent: { id: 'a', displayName: 'A' },
+          owner: { entityId: 'o', displayName: 'O' },
+          storage: { root: './data' },
+          providers: [{
+            id: 'p', label: 'P', adapter: 'openai-compatible', model: 'M',
+            baseUrl: 'https://example.invalid/v1/chat/completions',
+            authentication: 'none', maxAttempts: 1.5,
+          }],
+        }),
+        /maxAttempts must be a positive integer/,
+      );
+    }
+
+    // ── startup wiring must not drop provider fields (2026-08-09) ──
+    // Regression guard for a real incident: purposes/backgroundTimeoutMs/maxAttempts
+    // were implemented, validated, documented and unit-tested, yet the startup
+    // allow-list in bin/tether.cjs silently dropped all three. The provider suite
+    // stayed green while the running agent answered its owner through the
+    // background-only provider. Module tests cannot see this — the wiring must be
+    // asserted against a real config that has gone through loadTetherConfig.
+    {
+      const {
+        RUNTIME_PROVIDER_FIELDS,
+        toRuntimeProviders,
+      } = require('../runtime/providers/runtime-provider-config.cjs');
+
+      const wiringRoot = path.join(root, 'startup-wiring');
+      fs.mkdirSync(wiringRoot, { recursive: true });
+      const wiringConfigPath = path.join(wiringRoot, 'config.json');
+      fs.writeFileSync(wiringConfigPath, JSON.stringify({
+        agent: { id: 'wire', displayName: 'Wire' },
+        owner: { entityId: 'owner', displayName: 'Owner' },
+        storage: { root: path.join(wiringRoot, 'data') },
+        persona: { prompt: 'p' },
+        providers: [{
+          id: 'bg-only',
+          label: 'background only',
+          adapter: 'openai-compatible',
+          baseUrl: 'https://bg.invalid/v1/chat/completions',
+          authentication: 'none',
+          model: 'M',
+          purposes: ['background'],
+          backgroundTimeoutMs: 321000,
+          maxAttempts: 4,
+        }],
+      }));
+
+      const wired = toRuntimeProviders(loadTetherConfig(wiringConfigPath).providers);
+      assert.equal(wired.length, 1, 'startup wiring must keep the configured provider');
+      assert.deepEqual(wired[0].purposes, ['background'], 'purposes must survive startup wiring');
+      assert.equal(wired[0].backgroundTimeoutMs, 321000, 'backgroundTimeoutMs must survive startup wiring');
+      assert.equal(wired[0].maxAttempts, 4, 'maxAttempts must survive startup wiring');
+
+      // Every field the provider module reads must be in the startup allow-list,
+      // otherwise the next added field repeats the same silent-drop incident.
+      const providerSource = fs.readFileSync(
+        path.join(__dirname, '..', 'runtime', 'providers', 'openai-compatible.cjs'),
+        'utf8',
+      );
+      const readFields = new Set(
+        [...providerSource.matchAll(/provider\.([A-Za-z][A-Za-z0-9]*)/g)].map((m) => m[1]),
+      );
+      const dropped = [...readFields].filter((field) => !RUNTIME_PROVIDER_FIELDS.includes(field));
+      assert.deepEqual(
+        dropped,
+        [],
+        `provider fields read at runtime but dropped by startup wiring: ${dropped.join(', ')}`,
+      );
+    }
+
+    // ── round-count folding must leave headroom (2026-08-09) ──
+    // Folding down to exactly roundHardLimit means the next turn crosses it again,
+    // so every turn triggers another one-round fold and the session never catches up.
+    {
+      const limit = 120;
+      const floor = Math.max(8, Math.floor(limit * 0.8));
+      const rounds = 121;
+      assert.ok(
+        rounds - floor > 1,
+        'round-count folding must remove more than a single round when over the hard limit',
+      );
+      assert.ok(rounds - (rounds - floor) <= limit, 'folding must land at or below the hard limit');
+    }
 
     process.stdout.write('Tether offline suite: PASS (causal, selfsame, memory, semantic, durable, dual-channel, provider, export-lock)\n');
   } finally {

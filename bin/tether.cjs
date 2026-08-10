@@ -24,6 +24,7 @@ const {
   createTelegramGroupCoordinator,
 } = require('../runtime/channels/telegram-group.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
+const { toRuntimeProviders } = require('../runtime/providers/runtime-provider-config.cjs');
 const { createWorkspaceToolRuntime } = require('../runtime/tools/workspace-tools.cjs');
 const { RuntimeHealthReporter } = require('../runtime/operations/health.cjs');
 const { ensureRuntimeStorageSchema } = require('../runtime/operations/storage-schema.cjs');
@@ -122,34 +123,7 @@ async function main() {
       process.exit(0);
     });
   }
-  const providers = config.providers
-    .filter((provider) => provider.adapter === 'openai-compatible')
-    .map((provider) => ({
-      id: provider.id,
-      label: provider.label,
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey,
-      model: provider.model,
-      foldModel: provider.foldModel,
-      memoryModel: provider.memoryModel,
-      semanticExtractorModel: provider.semanticExtractorModel,
-      semanticVerifierModel: provider.semanticVerifierModel,
-      semanticHighRiskModel: provider.semanticHighRiskModel,
-      imageInput: provider.imageInput,
-      maxImageParts: provider.maxImageParts,
-      embeddingsUrl: provider.embeddingsUrl,
-      embeddingModel: provider.embeddingModel,
-      embeddingDimensions: provider.embeddingDimensions,
-      embeddingTimeoutMs: provider.embeddingTimeoutMs,
-      maxTokens: provider.maxTokens,
-      foldMaxTokens: provider.foldMaxTokens,
-      memoryMaxTokens: provider.memoryMaxTokens,
-      semanticExtractorMaxTokens: provider.semanticExtractorMaxTokens,
-      semanticVerifierMaxTokens: provider.semanticVerifierMaxTokens,
-      semanticHighRiskMaxTokens: provider.semanticHighRiskMaxTokens,
-      headers: provider.headers,
-      timeoutMs: provider.timeoutMs,
-    }));
+  const providers = toRuntimeProviders(config.providers);
   const toolRuntime = createWorkspaceToolRuntime({
     config,
     storageRoot: config.storage.root,

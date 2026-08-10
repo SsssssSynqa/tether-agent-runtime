@@ -179,13 +179,17 @@ node bin/tether-ops.cjs requeue-failed <update-id> ./config.json
 # Acknowledge that redelivering an already-done update is intentional
 node bin/tether-ops.cjs requeue-done <update-id> --confirm-redeliver ./config.json
 
+# Close a dead-letter/operator-paused update without replay, while retaining
+# its original update and terminal disposition in the append-only inbox.
+node bin/tether-ops.cjs archive <update-id> --confirm-no-replay ./config.json
+
 # Close an orphan only after proving the original source cannot be recovered
 node bin/tether-ops.cjs archive-orphan <update-id> --confirm-unrecoverable ./config.json
 ```
 
 Requeue records intent; after the command exits, restart the supervisor and let the ordinary durable/causal path perform replay. Never call the provider manually to recreate a lost response when committed bytes already exist.
 
-Before replaying stale messages, review recipient, age, causal state, committed output, and whether the user still expects a response. `requeue-done` and `archive-orphan` require explicit flags because their consequences are not safely inferable.
+Before replaying stale messages, review recipient, age, causal state, committed output, and whether the user still expects a response. Use `archive --confirm-no-replay` when the correct disposition is to preserve the record but send nothing. `requeue-done`, `archive`, and `archive-orphan` require explicit flags because their consequences are not safely inferable.
 
 ## Tool approvals and ambiguity
 

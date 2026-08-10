@@ -77,7 +77,7 @@ Four layers. Only stacked together do they add up to a character that stays the 
 
 **1. The persona anchor — the file you write first.** Your persona policy file is Tether's `CLAUDE.md` / `AGENTS.md`: it becomes the system prompt on every turn and is the one layer that is never folded away. Put in it who the agent is and how it addresses you, reply preferences, rules it must not break, where things live on disk, and project background. Memory does not replace this file, and this file does not replace memory — the anchor says *who it is*, the layers below say *what happened*.
 
-**2. Active context, folded automatically.** Recent turns stay verbatim. When the estimate crosses the soft watermark (default `36000` tokens) Tether folds the older prefix toward the target (default `24000`), always keeping at least the most recent rounds intact (default `8`). Folding is not deletion: the original turns stay in the append-only transcript, a fold preserves causal order and attribution, and if folding fails the last valid context stays in place rather than trading silent loss for tokens.
+**2. Active context, folded automatically.** Recent turns stay verbatim. When the estimate crosses the soft watermark (default `36000` tokens) Tether folds the older prefix toward the target (default `24000`), always keeping at least the most recent rounds intact (default `8`). The completed reply is durably appended to both the raw transcript and active history before folding starts; fold inference then runs single-flight in the background, so a slow maintenance provider does not hold the reply path open. A late fold commits only if the exact summarized prefix is still present, preserving turns that arrived meanwhile. Folding is not deletion: the original turns stay in the append-only transcript, a fold preserves causal order and attribution, and if folding fails the last valid context stays in place rather than trading silent loss for tokens.
 
 **3. Day cards and week cards — the layer built for API agents.** At the end of each operational day it settles into a **day card**: a written account of what happened, linked back to its sources; a week of those settles into a **week card**. The boundary is deliberate, not a cron job — a day rolls over at a set hour (default `06:00`), settles after the conversation goes quiet (default `45` minutes), and is force-settled by a latest hour (default `12:00`) if you simply keep talking. This is what vector recall cannot do: a card is a *narrative* — what happened that day, and why — which is how people actually remember. The compiler injects the latest version of each relevant card, not dozens of disconnected snippets.
 
@@ -175,6 +175,7 @@ node bin/tether-ops.cjs dead-letters ./config.json
 node bin/tether-tools.cjs approvals ./config.json
 
 # Offline: stop both supervisor and runtime first.
+node bin/tether-ops.cjs archive <update-id> --confirm-no-replay ./config.json
 node bin/tether-memory.cjs status ./config.json
 node bin/tether-memory.cjs rebuild-semantic ./config.json
 node bin/tether-memory.cjs backfill-vectors ./config.json

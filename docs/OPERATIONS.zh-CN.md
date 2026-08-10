@@ -179,13 +179,17 @@ node bin/tether-ops.cjs requeue-failed <update-id> ./config.json
 # 明确确认要重新投递已经 done 的 update
 node bin/tether-ops.cjs requeue-done <update-id> --confirm-redeliver ./config.json
 
+# 不重放地关闭 dead-letter/operator-paused；原始 update 与终态处置仍保留在
+# append-only inbox 中
+node bin/tether-ops.cjs archive <update-id> --confirm-no-replay ./config.json
+
 # 只有证明原始来源不可恢复后，才关闭 orphan
 node bin/tether-ops.cjs archive-orphan <update-id> --confirm-unrecoverable ./config.json
 ```
 
 requeue 只记录意图。命令退出后重启 supervisor，让普通 durable/causal 路径完成重放。已经存在 committed bytes 时，绝不要人工再问模型造一个“差不多”的回复。
 
-重放旧消息前，检查接收方、时间、因果状态、已提交输出，以及用户现在是否仍期待回复。`requeue-done` 与 `archive-orphan` 之所以需要明确 flag，就是因为后果不能安全推断。
+重放旧消息前，检查接收方、时间、因果状态、已提交输出，以及用户现在是否仍期待回复。如果正确处置是“保留记录但不再发送”，使用 `archive --confirm-no-replay`。`requeue-done`、`archive` 与 `archive-orphan` 之所以需要明确 flag，就是因为后果不能安全推断。
 
 ## 工具审批与歧义
 

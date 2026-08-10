@@ -17,6 +17,10 @@ const {
   estimateTokens,
 } = require(path.join(localModuleRoot, 'conversation-history.js'));
 const { MemoryCardManager } = require(path.join(localModuleRoot, 'memory-card-manager.js'));
+const {
+  parseLegacyTelegramGroupPrompt,
+  sanitizeDerivedMemoryText,
+} = require(path.join(localModuleRoot, 'control-plane-boundary.js'));
 const { normalizeMemoryPolicy } = require(path.join(localModuleRoot, 'memory-policy.js'));
 const {
   createSemanticMemoryModelAdapter,
@@ -92,7 +96,11 @@ function normalizedEntities({ entities = [], policy, owner = {}, agent = {} }) {
         ...(prior.botDisplayNames || []),
         ...(source.botDisplayNames || []),
       ]),
-      aliasDisplayNames: uniqueStrings(prior.aliasDisplayNames || []),
+      aliasDisplayNames: uniqueStrings([
+        ...(prior.aliases || []),
+        ...(prior.aliasDisplayNames || []),
+        ...(source.aliases || []),
+      ]),
     });
   };
   mergeIdentity(policy.owner, owner, 'person');
@@ -203,6 +211,7 @@ class LayeredMemory {
         messages,
         purpose: 'fold',
       })),
+      sanitizeSummary: sanitizeDerivedMemoryText,
       log,
     });
     this.cards = new MemoryCardManager({
@@ -219,7 +228,9 @@ class LayeredMemory {
       tokenBudget: Number(memory.contextTokenBudget) || 180_000,
       recentWeekCount: Number(memory.recentWeekCount) || 4,
       estimateTokens,
+      maxInputTokens: Number(memory.cards?.maxInputTokens) || undefined,
       memoryPolicy: this.policy,
+      sanitizeSummary: sanitizeDerivedMemoryText,
       log,
     });
     const embeddingOptions = semantic.embeddings || {};
@@ -283,16 +294,19 @@ class LayeredMemory {
   }
 
   _vectorDocuments() {
-    const documents = this.cards.store.effectiveCards().map((card) => ({
-      recordId: String(card.id),
-      kind: `card:${card.cardType}`,
-      title: card.title || `${card.cardType}:${card.period?.key || ''}`,
-      text: String(card.content || ''),
-      metadata: {
-        periodKey: card.period?.key || null,
-        sourceIds: uniqueStrings(card.sourceIds),
-      },
-    }));
+    const documents = this.cards.store.effectiveCards().flatMap((card) => {
+      const text = sanitizeDerivedMemoryText(card.content);
+      return text ? [{
+        recordId: String(card.id),
+        kind: `card:${card.cardType}`,
+        title: card.title || `${card.cardType}:${card.period?.key || ''}`,
+        text,
+        metadata: {
+          periodKey: card.period?.key || null,
+          sourceIds: uniqueStrings(card.sourceIds),
+        },
+      }] : [];
+    });
     if (!this.semantic) return documents;
     for (const claim of this.semantic.store.claims()) {
       if (claim.verificationStatus !== 'supported') continue;
@@ -390,6 +404,22 @@ class LayeredMemory {
       senderIsBot: metadata.senderIsBot === true,
     });
     if (canonical) return canonical;
+    if (metadata.legacyRecovered === true) {
+      const display = String(metadata.senderDisplayName || '').trim().toLocaleLowerCase();
+      const matches = this.entities.filter((entity) => [
+        entity.canonicalDisplayName,
+        ...(entity.aliasDisplayNames || []),
+        ...(entity.botDisplayNames || []),
+      ].some((name) => String(name || '').trim().toLocaleLowerCase() === display));
+      if (matches.length === 1) return matches[0].entityId;
+      const legacyKey = String(
+        metadata.senderUsername || metadata.senderDisplayName || 'unknown',
+      ).trim().toLocaleLowerCase();
+      return `telegram-legacy:${crypto.createHash('sha256')
+        .update(legacyKey, 'utf8')
+        .digest('hex')
+        .slice(0, 24)}`;
+    }
     if (metadata.senderId) return `telegram-user:${String(metadata.senderId)}`;
     return this.policy.owner.entityId;
   }
@@ -408,17 +438,31 @@ class LayeredMemory {
     const occurredAt = validIsoTimestamp(metadata.receivedAt, metadata.sentAt);
     const completedAt = validIsoTimestamp(metadata.completedAt, occurredAt);
     const senderEntityId = this._semanticSender(metadata);
-    const suppliedRawMessages = Array.isArray(metadata.semanticRawMessages)
+    const providedRawMessages = Array.isArray(metadata.semanticRawMessages)
       ? metadata.semanticRawMessages
       : [];
-    const rawMessages = suppliedRawMessages.length
-      ? suppliedRawMessages.map((message, index) => {
+    const suppliedRawMessages = providedRawMessages
+      .filter((message) => message?.evidenceClass !== 'control');
+    const recoveredLegacyMessages = suppliedRawMessages.length
+      ? []
+      : parseLegacyTelegramGroupPrompt(userText);
+    const conversationMessages = suppliedRawMessages.length
+      ? suppliedRawMessages
+      : recoveredLegacyMessages;
+    if (
+      !conversationMessages.length
+      && (metadata.evidenceClass === 'control' || providedRawMessages.length)
+    ) return null;
+    const rawMessages = conversationMessages.length
+      ? conversationMessages.map((message, index) => {
           const messageMetadata = {
             ...metadata,
             senderId: message.senderId,
             senderEntityId: message.senderEntityId,
             senderDisplayName: message.senderDisplayName,
+            senderUsername: message.senderUsername,
             senderIsBot: message.senderIsBot === true,
+            legacyRecovered: message.legacyRecovered === true,
           };
           const entityId = this._semanticSender(messageMetadata);
           return {
@@ -442,6 +486,7 @@ class LayeredMemory {
             archiveRef: String(message.archiveRef || `transcript.jsonl#${turnKey}`),
             ingestionCursor: String(message.ingestionCursor || `${turnKey}:input:${index}`),
             attachmentRefs: uniqueStrings(message.attachmentRefs),
+            evidenceClass: 'conversation',
           };
         })
       : [{
@@ -463,6 +508,7 @@ class LayeredMemory {
       archiveRef: `transcript.jsonl#${turnKey}`,
       ingestionCursor: `${turnKey}:input`,
       attachmentRefs: uniqueStrings(metadata.attachmentRefs),
+      evidenceClass: metadata.evidenceClass === 'control' ? 'control' : 'conversation',
     }];
     if (!metadata.ingressOnly || String(assistantText || '')) rawMessages.push({
       messageId: assistantMessageId,
@@ -479,6 +525,7 @@ class LayeredMemory {
       archiveRef: `transcript.jsonl#${turnKey}`,
       ingestionCursor: `${turnKey}:assistant`,
       attachmentRefs: [],
+      evidenceClass: 'conversation',
     });
     return {
       ...(metadata.semanticPacketId ? { packetId: String(metadata.semanticPacketId) } : {}),
@@ -491,9 +538,9 @@ class LayeredMemory {
 
   _enqueueSemanticTurn(userText, assistantText, metadata = {}) {
     if (!this.semantic?.enabled()) return null;
-    return this.semantic.enqueue(
-      this._semanticPacketInput(userText, assistantText, metadata),
-    ).packetId;
+    const input = this._semanticPacketInput(userText, assistantText, metadata);
+    if (!input) return null;
+    return this.semantic.enqueue(input).packetId;
   }
 
   async rebuildSemanticQueue({ queueClass = 'historical', batchSize = 100 } = {}) {
@@ -533,7 +580,7 @@ class LayeredMemory {
         }
         if (entry?.type !== 'turn') continue;
         turns += 1;
-        batch.push(this._semanticPacketInput(entry.user, entry.assistant, {
+        const semanticInput = this._semanticPacketInput(entry.user, entry.assistant, {
           causalIds: entry.causalIds || [],
           source: entry.source || 'transcript-rebuild',
           trustZone: entry.trustZone || null,
@@ -551,7 +598,8 @@ class LayeredMemory {
           attachmentRefs: (Array.isArray(entry.sourceParts) ? entry.sourceParts : []).map(
             (part) => part?.archivePath || part?.path || part?.sha256,
           ),
-        }));
+        });
+        if (semanticInput) batch.push(semanticInput);
         if (batch.length >= Math.max(1, Number(batchSize) || 100)) flush();
       }
       flush();
