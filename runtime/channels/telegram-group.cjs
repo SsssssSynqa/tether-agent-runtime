@@ -141,15 +141,39 @@ function createTelegramGroupCoordinator({
   const active = new Map();
   const sequencer = createPerKeySequencer();
 
+  function groupBatchWithPendingImages(record, messages) {
+    const chatId = String(messages.at(-1)?.metadata?.chatId || record.chatId || '');
+    const throughMessageId = Math.max(
+      ...messages.map((message) => Number(message?.metadata?.telegramMessageId) || 0),
+    );
+    const currentImageCount = messages.reduce(
+      (sum, message) => sum + (message.sourceParts || []).filter((part) => part?.type === 'image').length,
+      0,
+    );
+    const pendingGroupImages = channel.pendingGroupImages?.(
+      chatId,
+      throughMessageId,
+      Math.max(0, 4 - currentImageCount),
+    )
+      || { sourceParts: [], records: [], tokens: [] };
+    return {
+      chatId,
+      pendingGroupImages,
+      synthetic: channel.createGroupBatchMessage(record, messages, {
+        maxReplies,
+        allowedReactions,
+        pendingGroupImages,
+      }),
+    };
+  }
+
   const batcher = new GroupConversationBatcher({
     generateReplies: async (batch) => {
       const durableMessages = batch.map((message) => channel.durablePreparedMessage(message));
       const record = inbox.markGroupBatch(durableMessages);
-      const synthetic = channel.createGroupBatchMessage(record, batch, {
-        maxReplies,
-        allowedReactions,
-      });
-      await channel.ingestPreparedMessage(synthetic);
+      const prepared = groupBatchWithPendingImages(record, batch);
+      await channel.ingestPreparedMessage(prepared.synthetic);
+      channel.consumePendingGroupImages?.(prepared.chatId, prepared.pendingGroupImages.tokens);
       // TetherRuntime already generated and delivered the canonical envelope.
       // The batching primitive only owns debounce, membership, and completion.
       return [];
@@ -201,7 +225,10 @@ function createTelegramGroupCoordinator({
       if (prepared.respond === false) {
         return {
           markDone: true,
-          completion: channel.ingestPreparedMessage({ ...prepared, respond: false }),
+          completion: channel.ingestPreparedMessage({ ...prepared, respond: false }).then((result) => {
+            channel.recordPendingGroupImages?.(prepared);
+            return result;
+          }),
         };
       }
       const queued = { ...prepared, updateId, chatId: String(prepared.metadata?.chatId || chatId) };
@@ -244,10 +271,10 @@ function createTelegramGroupCoordinator({
     if (!messages.length || messages.some((message) => !message)) {
       throw new Error(`Telegram group batch ${record.batchId} cannot restore its members`);
     }
-    return channel.ingestPreparedMessage(channel.createGroupBatchMessage(record, messages, {
-      maxReplies,
-      allowedReactions,
-    }));
+    const prepared = groupBatchWithPendingImages(record, messages);
+    const result = await channel.ingestPreparedMessage(prepared.synthetic);
+    channel.consumePendingGroupImages?.(prepared.chatId, prepared.pendingGroupImages.tokens);
+    return result;
   }
 
   async function dispatchRun(entries) {

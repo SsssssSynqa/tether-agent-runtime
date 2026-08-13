@@ -1672,6 +1672,109 @@ async function main() {
     assert.equal(JSON.stringify(durableGroupRecord).includes('sourceParts'), false);
     groupCoordinator.stop();
 
+    const deferredImageRoot = path.join(root, 'deferred-group-image');
+    const deferredImageMessages = [];
+    const deferredImageApi = {
+        async call(method) {
+          if (method === 'getMe') return { ok: true, result: { id: 902, username: 'anchor_bot' } };
+          if (method === 'getFile') {
+            return { ok: true, result: { file_path: 'photos/deferred.jpg', file_size: 4 } };
+          }
+          return { ok: true, result: [] };
+        },
+        async downloadFile() {
+          return { buffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), mimeType: 'image/jpeg' };
+        },
+        async sendMessage() { return { ok: true, result: { message_id: 1 } }; },
+      };
+    const createDeferredImageChannel = () => createTelegramChannel({
+        api: deferredImageApi,
+        ownerIds: ['11'],
+        allowedGroups: {
+          '-88': { mode: 'mention', mentionPatterns: ['Anchor'], ownerAlways: false },
+        },
+        attachmentDirectory: path.join(deferredImageRoot, 'attachments'),
+        offsetStore: createFileOffsetStore(path.join(deferredImageRoot, 'offset.txt')),
+        log: () => {},
+      });
+    const deferredImageChannel = createDeferredImageChannel();
+    await deferredImageChannel.initialize();
+    deferredImageChannel.onMessage(async (message) => {
+      deferredImageMessages.push(structuredClone(message));
+      return { delivered: true };
+    });
+    const deferredImageInbox = new DurableInbox({
+      filePath: path.join(deferredImageRoot, 'inbox.jsonl'),
+      log: () => {},
+    });
+    const deferredImageCoordinator = createTelegramGroupCoordinator({
+      channel: deferredImageChannel,
+      inbox: deferredImageInbox,
+      timing: { singleMessageMs: 5, sameSenderIdleMs: 5, sameSenderMaxMs: 5 },
+      log: () => {},
+    });
+    const quietImageUpdate = {
+      update_id: 501,
+      message: {
+        message_id: 101,
+        caption: 'ordinary group image',
+        from: { id: 22, first_name: 'Rin' },
+        chat: { id: -88, type: 'supergroup', title: 'Quiet room' },
+        photo: [{ file_id: 'quiet-image', width: 2, height: 2, file_size: 4 }],
+      },
+    };
+    const firstImageTrigger = {
+      update_id: 502,
+      message: {
+        message_id: 102,
+        text: 'Anchor, what did you see?',
+        from: { id: 22, first_name: 'Rin' },
+        chat: { id: -88, type: 'supergroup', title: 'Quiet room' },
+      },
+    };
+    const secondImageTrigger = {
+      update_id: 503,
+      message: {
+        message_id: 103,
+        text: 'Anchor, continue.',
+        from: { id: 22, first_name: 'Rin' },
+        chat: { id: -88, type: 'supergroup', title: 'Quiet room' },
+      },
+    };
+    deferredImageInbox.receive(quietImageUpdate);
+    await deferredImageCoordinator.ingestUpdate(quietImageUpdate);
+    deferredImageCoordinator.stop();
+
+    // Recreate both channel and coordinator to prove the deferred image is a
+    // durable context reference, not an in-memory convenience.
+    const restartedDeferredChannel = createDeferredImageChannel();
+    await restartedDeferredChannel.initialize();
+    restartedDeferredChannel.onMessage(async (message) => {
+      deferredImageMessages.push(structuredClone(message));
+      return { delivered: true };
+    });
+    const restartedDeferredInbox = new DurableInbox({
+      filePath: path.join(deferredImageRoot, 'inbox.jsonl'),
+      log: () => {},
+    });
+    const restartedDeferredCoordinator = createTelegramGroupCoordinator({
+      channel: restartedDeferredChannel,
+      inbox: restartedDeferredInbox,
+      timing: { singleMessageMs: 5, sameSenderIdleMs: 5, sameSenderMaxMs: 5 },
+      log: () => {},
+    });
+    for (const update of [firstImageTrigger, secondImageTrigger]) {
+      restartedDeferredInbox.receive(update);
+      await restartedDeferredCoordinator.ingestUpdate(update);
+    }
+    assert.equal(deferredImageMessages.length, 3, 'quiet observation plus two responding batches');
+    assert.equal(deferredImageMessages[0].respond, false, 'quiet image must not trigger a reply');
+    assert.equal(deferredImageMessages[1].sourceParts.length, 1, 'next trigger receives the unseen image');
+    assert.equal(deferredImageMessages[1].metadata.pendingContextImages.length, 1);
+    assert.match(deferredImageMessages[1].providerText, /PRIOR_UNSEEN_GROUP_IMAGES/);
+    assert.equal(deferredImageMessages[2].sourceParts.length, 0, 'consumed image is not billed twice');
+    restartedDeferredCoordinator.stop();
+
     const barrierInbox = new DurableInbox({
       filePath: path.join(root, 'group-barrier-inbox.jsonl'),
       log: () => {},

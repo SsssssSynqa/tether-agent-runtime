@@ -296,6 +296,120 @@ function insideDirectory(filePath, directory) {
   return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
+function writeAtomicPrivateJson(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomUUID()}`;
+  fs.writeFileSync(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600 });
+  const descriptor = fs.openSync(temporary, 'r');
+  try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+  fs.renameSync(temporary, filePath);
+  fs.chmodSync(filePath, 0o600);
+}
+
+function createPendingGroupImageStore({ filePath, imageCacheDir, maxImageBytes, log }) {
+  let chats = {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (parsed?.schemaVersion === 1 && parsed.chats && typeof parsed.chats === 'object') {
+      chats = parsed.chats;
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') log(`[tether] pending group image state ignored: ${error.message}`);
+  }
+  const save = () => writeAtomicPrivateJson(filePath, { schemaVersion: 1, chats });
+  const tokenFor = (messageId, attachment) => (
+    `${Number(messageId)}:${String(attachment.sha256 || path.basename(attachment.path || 'image'))}`
+  );
+  const validateAttachment = (attachment) => {
+    if (attachment?.type !== 'image' || !insideDirectory(attachment.path, imageCacheDir)) return null;
+    const bytes = fs.readFileSync(attachment.path);
+    if (bytes.length > Number(maxImageBytes)) return null;
+    const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (attachment.sha256 && attachment.sha256 !== sha256) return null;
+    return {
+      attachment: { ...attachment, sha256 },
+      sourcePart: {
+        type: 'image',
+        mimeType: attachment.mimeType || 'application/octet-stream',
+        data: bytes.toString('base64'),
+        sha256,
+      },
+    };
+  };
+  return {
+    record(message) {
+      const metadata = message?.metadata || {};
+      const chatId = String(metadata.chatId || '');
+      const messageId = Number(metadata.telegramMessageId);
+      const attachments = (message?.attachmentFiles || []).filter((item) => item?.type === 'image');
+      if (!chatId || !Number.isSafeInteger(messageId) || !attachments.length) return [];
+      const entries = Array.isArray(chats[chatId]) ? chats[chatId] : [];
+      const existing = new Set(entries.flatMap((entry) => (
+        (entry.attachments || []).map((item) => tokenFor(entry.messageId, item))
+      )));
+      const novel = attachments.filter((item) => !existing.has(tokenFor(messageId, item)));
+      if (!novel.length) return [];
+      entries.push({
+        messageId,
+        updateId: Number(metadata.updateId) || null,
+        sentAt: metadata.sentAt || null,
+        attachments: structuredClone(novel),
+      });
+      entries.sort((left, right) => left.messageId - right.messageId);
+      if (entries.length > 50) entries.splice(0, entries.length - 50);
+      chats[chatId] = entries;
+      save();
+      return novel.map((item) => tokenFor(messageId, item));
+    },
+    pending(chatId, throughMessageId = Number.POSITIVE_INFINITY, limit = Number.POSITIVE_INFINITY) {
+      if (Number(limit) <= 0) return { sourceParts: [], records: [], tokens: [] };
+      const sourceParts = [];
+      const records = [];
+      const tokens = [];
+      for (const entry of Array.isArray(chats[String(chatId)]) ? chats[String(chatId)] : []) {
+        if (Number(entry.messageId) > Number(throughMessageId)) continue;
+        for (const attachment of entry.attachments || []) {
+          let validated;
+          try { validated = validateAttachment(attachment); } catch (error) {
+            log(`[tether] pending group image unavailable message=${entry.messageId}: ${error.message}`);
+            continue;
+          }
+          if (!validated) continue;
+          tokens.push(tokenFor(entry.messageId, validated.attachment));
+          sourceParts.push(validated.sourcePart);
+          records.push({
+            messageId: entry.messageId,
+            sentAt: entry.sentAt || null,
+            mimeType: validated.attachment.mimeType || null,
+            sha256: validated.attachment.sha256 || null,
+          });
+          if (sourceParts.length >= Number(limit)) return { sourceParts, records, tokens };
+        }
+      }
+      return { sourceParts, records, tokens };
+    },
+    consume(chatId, tokens = []) {
+      const consumed = new Set(tokens.map(String));
+      if (!consumed.size) return 0;
+      const key = String(chatId);
+      let removed = 0;
+      const entries = [];
+      for (const entry of Array.isArray(chats[key]) ? chats[key] : []) {
+        const attachments = (entry.attachments || []).filter((attachment) => {
+          const drop = consumed.has(tokenFor(entry.messageId, attachment));
+          if (drop) removed += 1;
+          return !drop;
+        });
+        if (attachments.length) entries.push({ ...entry, attachments });
+      }
+      if (entries.length) chats[key] = entries;
+      else delete chats[key];
+      if (removed) save();
+      return removed;
+    },
+  };
+}
+
 function createFileOffsetStore(filePath) {
   const resolved = path.resolve(filePath);
   return {
@@ -387,6 +501,12 @@ function createTelegramChannel({
   const attachmentRoot = path.resolve(attachmentDirectory || path.join(process.cwd(), '.tether-attachments'));
   const imageCacheDir = path.join(attachmentRoot, 'images');
   const fileCacheDir = path.join(attachmentRoot, 'files');
+  const pendingGroupImageStore = createPendingGroupImageStore({
+    filePath: path.join(attachmentRoot, 'pending-group-images.json'),
+    imageCacheDir,
+    maxImageBytes,
+    log,
+  });
 
   async function sendText(chatId, text, replyToMessageId, progress) {
     const chunks = splitTelegramText(text);
@@ -448,6 +568,15 @@ function createTelegramChannel({
       return normalized;
     },
     isGroupUpdate: isTelegramGroupUpdate,
+    recordPendingGroupImages(message) {
+      return pendingGroupImageStore.record(message);
+    },
+    pendingGroupImages(chatId, throughMessageId, limit) {
+      return pendingGroupImageStore.pending(chatId, throughMessageId, limit);
+    },
+    consumePendingGroupImages(chatId, tokens) {
+      return pendingGroupImageStore.consume(chatId, tokens);
+    },
     async initialize() {
       const payload = await api.call('getMe', {});
       const identity = payload?.result || payload;
@@ -563,12 +692,26 @@ function createTelegramChannel({
     },
     createGroupBatchMessage(record, messages, options = {}) {
       const built = buildTelegramGroupBatch(messages);
-      const sourceParts = messages.flatMap((message) => message.sourceParts || []);
+      const pending = options.pendingGroupImages || { sourceParts: [], records: [], tokens: [] };
+      const sourceParts = [
+        ...(pending.sourceParts || []),
+        ...messages.flatMap((message) => message.sourceParts || []),
+      ].filter((part, index, all) => {
+        const identity = part.sha256 || `${part.mimeType}:${part.data}`;
+        return all.findIndex((candidate) => (
+          (candidate.sha256 || `${candidate.mimeType}:${candidate.data}`) === identity
+        )) === index;
+      });
       const last = messages.at(-1);
       return {
         messageId: `telegram:group-batch:${record.batchId}`,
         text: built.historyText,
-        providerText: built.providerText,
+        providerText: [
+          built.providerText,
+          ...(pending.records?.length
+            ? [`PRIOR_UNSEEN_GROUP_IMAGES ${JSON.stringify(pending.records)}`]
+            : []),
+        ].join('\n'),
         systemPrompt: built.systemPrompt,
         sourceParts,
         metadata: {
@@ -585,6 +728,8 @@ function createTelegramChannel({
           semanticRawMessages: messages.flatMap(
             (message) => message.metadata?.semanticRawMessages || [],
           ),
+          pendingContextImages: pending.records || [],
+          pendingContextImageTokens: pending.tokens || [],
         },
       };
     },
