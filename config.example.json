@@ -57,6 +57,10 @@
       "default": { "read": "deny", "write": "deny" }
     }
   },
+  "externalRecall": {
+    "enabled": false,
+    "telegramGroup": false
+  },
   "memory": {
     "activeSoftTokenWatermark": 36000,
     "activeTargetTokenWatermark": 24000,

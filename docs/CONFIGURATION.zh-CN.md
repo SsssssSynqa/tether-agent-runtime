@@ -225,6 +225,25 @@ root ID 必须匹配 `[a-z][a-z0-9_-]{0,63}` 且唯一。root path 与 `storage.
 
 每个已识别通道域里的 read/write 分别选择 `allow`、`approval`、`deny`。缺失的域或能力会沿 `default` 回落，最终默认拒绝。`maxIterations` 限制单次 provider tool loop。
 
+## 可选外部召回
+
+外部 Hub 召回默认休眠：
+
+```json
+{
+  "externalRecall": {
+    "enabled": false,
+    "telegramGroup": false
+  }
+}
+```
+
+操作者可以在本机私有 overlay 中提供 Hub `baseUrl`、固定 `principal` 和固定 `adapterId` 后启用；Syrah Memory Hub 部署登记的 adapter id 是 `syrah_tether`。可选边界为 `limit`（1–50，默认 `5`）、`timeoutMs`（默认 `2500`）和 `receiptTimeoutMs`（默认 `250`）。端点沿用 provider URL 的 HTTPS 或 loopback 约束，且不得内嵌凭据。
+
+adapter 只执行带 `mode=fts` 与 `intent=auto_recall` 的 `GET /api/search`。它只允许 terminal 与 Telegram 私聊；运行时代码始终拒绝 Telegram 群聊，`telegramGroup` 也只能配置为 `false`，因此配置无法放宽这条边界。返回记录会作为不可信 JSON-lines 放入结构化 system 数据块；Hub 已返回的事件卡预览不会在客户端再次截断。
+
+Hub 返回 `trace_id` 时，Receipt 为 content-free 且 best effort：格式化数据块放入 provider 请求后记 `adapter_rendered`，完整 provider/工具循环成功后才记 `provider_submitted`；Tether 不声称 `model_injected`。搜索或 Receipt 超时、非成功响应、坏 JSON 都 fail-open。召回数据块只存在于 provider 请求中，不写 transcript 或 conversation history。
+
 ## Telegram
 
 核心字段：

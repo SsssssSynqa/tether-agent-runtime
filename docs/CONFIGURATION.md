@@ -227,6 +227,25 @@ Root IDs must match `[a-z][a-z0-9_-]{0,63}` and be unique. A root path and `stor
 
 Policies choose `allow`, `approval`, or `deny` independently for read and write in each recognized scope. Missing scope/capability falls back through `default` to deny. `maxIterations` bounds one provider tool loop.
 
+## Optional external recall
+
+External Hub recall is dormant by default:
+
+```json
+{
+  "externalRecall": {
+    "enabled": false,
+    "telegramGroup": false
+  }
+}
+```
+
+An operator may enable it in a machine-local overlay by supplying a Hub `baseUrl`, a fixed `principal`, and a fixed `adapterId`. For Syrah Memory Hub deployments, the registered adapter id is `syrah_tether`. Optional bounds are `limit` (1–50, default `5`), `timeoutMs` (default `2500`), and `receiptTimeoutMs` (default `250`). The endpoint must follow the same HTTPS-or-loopback and no-embedded-credentials rules as provider URLs.
+
+The adapter performs only `GET /api/search` with `mode=fts` and `intent=auto_recall`. It is eligible for terminal and private Telegram turns; Telegram groups are always refused in runtime code, and `telegramGroup` can only be `false`, so configuration cannot widen that boundary. Returned records are encoded as untrusted JSON-lines inside a system data block. Hub-provided event-card previews are preserved without a second client-side truncation.
+
+When the Hub returns a `trace_id`, receipts are best effort and content-free: `adapter_rendered` after the formatted block is placed in the provider request, then `provider_submitted` only after the complete provider/tool loop succeeds. Tether never claims `model_injected`. Search or receipt timeouts, non-success responses, and malformed JSON fail open. The recall block exists only in the provider request and is never appended to transcript or conversation history.
+
 ## Telegram
 
 Core fields:

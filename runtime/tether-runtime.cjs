@@ -11,6 +11,7 @@ class TetherRuntime {
     maintenanceSupervisor = null,
     healthReporter = null,
     causalJournal = null,
+    externalRecall = null,
     personaPrompt = '',
     rawTailMessages = 40,
     summaryLimit = 20,
@@ -26,6 +27,7 @@ class TetherRuntime {
     this.maintenanceSupervisor = maintenanceSupervisor;
     this.healthReporter = healthReporter;
     this.causal = causalJournal || new CausalJournal({ directory: memory.directory });
+    this.externalRecall = externalRecall;
     this.personaPrompt = String(personaPrompt || '');
     this.rawTailMessages = rawTailMessages;
     this.summaryLimit = summaryLimit;
@@ -35,6 +37,38 @@ class TetherRuntime {
       && typeof memory.buildMessages === 'function';
     this.channels = new Map();
     this.queue = Promise.resolve();
+  }
+
+  async _prepareExternalRecall(messages, channel, sourceMessage) {
+    if (typeof this.externalRecall?.prepare !== 'function') return null;
+    let prepared;
+    try {
+      prepared = await this.externalRecall.prepare({
+        channelId: channel.id,
+        metadata: sourceMessage.metadata || {},
+        query: String(sourceMessage.text || ''),
+      });
+    } catch (_) {
+      return null;
+    }
+    const content = prepared?.message?.content;
+    if (prepared?.message?.role !== 'system' || typeof content !== 'string' || !content) return null;
+    const userIndex = messages.findLastIndex((message) => message.role === 'user');
+    messages.splice(userIndex < 0 ? messages.length : userIndex, 0, {
+      role: 'system',
+      content,
+    });
+    await this._submitExternalRecallReceipt(prepared.receipt, 'adapter_rendered');
+    return prepared.receipt || null;
+  }
+
+  async _submitExternalRecallReceipt(receipt, stage) {
+    if (!receipt || typeof this.externalRecall?.submitReceipt !== 'function') return false;
+    try {
+      return await this.externalRecall.submitReceipt(receipt, stage) === true;
+    } catch (_) {
+      return false;
+    }
   }
 
   attach(channel) {
@@ -383,6 +417,7 @@ class TetherRuntime {
       ...user,
       metadata: { ...(user.metadata || {}), causalId: causalRecord.causalId },
     }, message);
+    const externalRecallReceipt = await this._prepareExternalRecall(messages, channel, message);
     let result;
     try {
       result = await this.provider.respond({
@@ -400,6 +435,9 @@ class TetherRuntime {
           owner: message.metadata?.owner === true,
         },
       });
+      // A successful respond() includes the complete bounded tool loop. It is
+      // the strongest callback this host has; do not overclaim model_injected.
+      await this._submitExternalRecallReceipt(externalRecallReceipt, 'provider_submitted');
       if (typeof channel.prepareOutput === 'function') {
         result = await channel.prepareOutput({
           result,

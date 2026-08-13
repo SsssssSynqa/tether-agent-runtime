@@ -210,6 +210,77 @@ function validateConfig(config) {
   ) {
     errors.push('telegram.retryMaxMs must not be smaller than telegram.retryBaseMs');
   }
+  const externalRecall = config.externalRecall || {};
+  if (config.externalRecall != null && !isObject(config.externalRecall)) {
+    errors.push('externalRecall must be an object');
+  }
+  const externalRecallFields = new Set([
+    'enabled',
+    'baseUrl',
+    'principal',
+    'adapterId',
+    'limit',
+    'timeoutMs',
+    'receiptTimeoutMs',
+    'telegramGroup',
+  ]);
+  for (const field of Object.keys(isObject(config.externalRecall) ? externalRecall : {})) {
+    if (!externalRecallFields.has(field)) {
+      errors.push(`externalRecall.${field} is not a recognized field`);
+    }
+  }
+  if (externalRecall.enabled != null && typeof externalRecall.enabled !== 'boolean') {
+    errors.push('externalRecall.enabled must be boolean');
+  }
+  // External recall deliberately has no group mode. Keeping an explicit false
+  // field lets an operator document that boundary while rejecting any attempt
+  // to turn a group on through configuration.
+  if (externalRecall.telegramGroup != null && externalRecall.telegramGroup !== false) {
+    errors.push('externalRecall.telegramGroup must be false');
+  }
+  if (externalRecall.enabled === true) {
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(String(externalRecall.principal || ''))) {
+      errors.push('externalRecall.principal must be a stable lowercase identifier');
+    }
+    if (!/^[a-z][a-z0-9_]{0,63}$/.test(String(externalRecall.adapterId || ''))) {
+      errors.push('externalRecall.adapterId must be a stable lowercase adapter identifier');
+    }
+    if (!String(externalRecall.baseUrl || '').trim()) {
+      errors.push('externalRecall.baseUrl is required when external recall is enabled');
+    } else {
+      try {
+        const parsed = new URL(externalRecall.baseUrl);
+        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported protocol');
+        if (parsed.protocol === 'http:' && !isLoopbackHostname(parsed.hostname)) {
+          errors.push('externalRecall.baseUrl must use https unless the host is loopback');
+        }
+        if (parsed.username || parsed.password || urlCredentialQueryKeys(parsed).length) {
+          errors.push('externalRecall.baseUrl must not contain credentials');
+        }
+        if (parsed.search || parsed.hash) {
+          errors.push('externalRecall.baseUrl must not contain query parameters or a fragment');
+        }
+      } catch (_) {
+        errors.push('externalRecall.baseUrl must use http or https');
+      }
+    }
+  }
+  if (
+    externalRecall.limit != null
+    && (!Number.isSafeInteger(Number(externalRecall.limit))
+      || Number(externalRecall.limit) < 1
+      || Number(externalRecall.limit) > 50)
+  ) {
+    errors.push('externalRecall.limit must be an integer between 1 and 50');
+  }
+  for (const field of ['timeoutMs', 'receiptTimeoutMs']) {
+    if (
+      externalRecall[field] != null
+      && (!Number.isFinite(Number(externalRecall[field])) || Number(externalRecall[field]) <= 0)
+    ) {
+      errors.push(`externalRecall.${field} must be a positive number`);
+    }
+  }
   if (!Array.isArray(config.providers) || config.providers.length === 0) {
     errors.push('at least one provider is required');
   }

@@ -3,77 +3,311 @@
   "sourceHistoryReused": false,
   "exportPolicy": "explicit-allowlist-exact-bytes",
   "files": [
-    { "source": "public/.gitignore", "target": ".gitignore" },
-    { "source": "public/.env.example", "target": ".env.example" },
-    { "source": "public/config.example.json", "target": "config.example.json" },
-    { "source": "public/package.json", "target": "package.json" },
-    { "source": "public/persona-policy.example.md", "target": "persona-policy.example.md" },
-    { "source": "public-export-manifest.json", "target": "public-export-manifest.json" },
-    { "source": "public/bin/tether.cjs", "target": "bin/tether.cjs", "mode": "755" },
-    { "source": "bin/tether-memory.cjs", "target": "bin/tether-memory.cjs", "mode": "755" },
-    { "source": "bin/tether-tools.cjs", "target": "bin/tether-tools.cjs", "mode": "755" },
-    { "source": "bin/tether-ops.cjs", "target": "bin/tether-ops.cjs", "mode": "755" },
-    { "source": "bin/tether-supervisor.cjs", "target": "bin/tether-supervisor.cjs", "mode": "755" },
-    { "source": "public/runtime/config-loader.cjs", "target": "runtime/config-loader.cjs" },
-    { "source": "runtime/causal-journal.cjs", "target": "runtime/causal-journal.cjs" },
-    { "source": "runtime/identity-policy.cjs", "target": "runtime/identity-policy.cjs" },
-    { "source": "runtime/instance-lock.cjs", "target": "runtime/instance-lock.cjs" },
-    { "source": "runtime/selfsame-session.cjs", "target": "runtime/selfsame-session.cjs" },
-    { "source": "public/runtime/tether-runtime.cjs", "target": "runtime/tether-runtime.cjs" },
-    { "source": "runtime/channels/memory-channel.cjs", "target": "runtime/channels/memory-channel.cjs" },
-    { "source": "public/runtime/channels/telegram.cjs", "target": "runtime/channels/telegram.cjs" },
-    { "source": "runtime/channels/telegram-group.cjs", "target": "runtime/channels/telegram-group.cjs" },
-    { "source": "runtime/channels/terminal.cjs", "target": "runtime/channels/terminal.cjs" },
-    { "source": "runtime/memory/append-only-memory.cjs", "target": "runtime/memory/append-only-memory.cjs" },
-    { "source": "public/runtime/memory/layered-memory.cjs", "target": "runtime/memory/layered-memory.cjs" },
-    { "source": "runtime/memory/maintenance-supervisor.cjs", "target": "runtime/memory/maintenance-supervisor.cjs", "mode": "755" },
-    { "source": "runtime/memory/vector-memory.cjs", "target": "runtime/memory/vector-memory.cjs" },
-    { "source": "public/runtime/providers/openai-compatible.cjs", "target": "runtime/providers/openai-compatible.cjs" },
-    { "source": "public/runtime/providers/runtime-provider-config.cjs", "target": "runtime/providers/runtime-provider-config.cjs" },
-    { "source": "runtime/operations/backup.cjs", "target": "runtime/operations/backup.cjs" },
-    { "source": "runtime/operations/health.cjs", "target": "runtime/operations/health.cjs" },
-    { "source": "runtime/operations/storage-schema.cjs", "target": "runtime/operations/storage-schema.cjs" },
-    { "source": "runtime/operations/supervisor.cjs", "target": "runtime/operations/supervisor.cjs" },
-    { "source": "runtime/tools/tool-journal.cjs", "target": "runtime/tools/tool-journal.cjs" },
-    { "source": "runtime/tools/workspace-tools.cjs", "target": "runtime/tools/workspace-tools.cjs" },
-    { "source": "durable-inbox.js", "target": "runtime/durable/durable-inbox.js" },
-    { "source": "durable-dispatcher.js", "target": "runtime/durable/durable-dispatcher.js" },
-    { "source": "durable-error-policy.js", "target": "runtime/durable/durable-error-policy.js" },
-    { "source": "durable-outbound.js", "target": "runtime/durable/durable-outbound.js" },
-    { "source": "group-ingress-sequencer.js", "target": "runtime/bridge/group-ingress-sequencer.js" },
-    { "source": "poll-watchdog.js", "target": "runtime/bridge/poll-watchdog.js" },
-    { "source": "telegram-request-policy.js", "target": "runtime/bridge/telegram-request-policy.js" },
-    { "source": "telegram-reply-fallback.js", "target": "telegram-reply-fallback.js" },
-    { "source": "chunk-emitter.js", "target": "runtime/transport/chunk-emitter.js" },
-    { "source": "sse-accumulator.js", "target": "runtime/transport/sse-accumulator.js" },
-    { "source": "compile-manifest-journal.js", "target": "runtime/memory/compile-manifest-journal.js" },
-    { "source": "candidate-output.js", "target": "runtime/memory/candidate-output.js" },
-    { "source": "memory-policy.js", "target": "runtime/memory/memory-policy.js" },
-    { "source": "conversation-history.js", "target": "runtime/memory/conversation-history.js" },
-    { "source": "memory-time.js", "target": "runtime/memory/memory-time.js" },
-    { "source": "memory-sources.js", "target": "runtime/memory/memory-sources.js" },
-    { "source": "memory-card-address.js", "target": "runtime/memory/memory-card-address.js" },
-    { "source": "memory-card-files.js", "target": "runtime/memory/memory-card-files.js" },
-    { "source": "memory-card-store.js", "target": "runtime/memory/memory-card-store.js" },
-    { "source": "memory-context-compiler.js", "target": "runtime/memory/memory-context-compiler.js" },
-    { "source": "public/runtime/memory/control-plane-boundary.js", "target": "runtime/memory/control-plane-boundary.js" },
-    { "source": "public/runtime/memory/memory-card-manager.js", "target": "runtime/memory/memory-card-manager.js" },
-    { "source": "semantic-memory-entities.js", "target": "runtime/memory/semantic-memory-entities.js" },
-    { "source": "semantic-memory-model-adapter.js", "target": "runtime/memory/semantic-memory-model-adapter.js" },
-    { "source": "semantic-memory-pipeline.js", "target": "runtime/memory/semantic-memory-pipeline.js" },
-    { "source": "semantic-memory-manager.js", "target": "runtime/memory/semantic-memory-manager.js" },
-    { "source": "semantic-memory-projections.js", "target": "runtime/memory/semantic-memory-projections.js" },
-    { "source": "semantic-memory-store.js", "target": "runtime/memory/semantic-memory-store.js" },
-    { "source": "semantic-memory-validators.js", "target": "runtime/memory/semantic-memory-validators.js" },
-    { "source": "lib/telegram/group-batcher.cjs", "target": "lib/telegram/group-batcher.cjs" },
-    { "source": "lib/telegram/group-rate-limit.cjs", "target": "lib/telegram/group-rate-limit.cjs" },
-    { "source": "lib/telegram/image-utils.cjs", "target": "lib/telegram/image-utils.cjs" },
-    { "source": "scripts/export-public-snapshot.cjs", "target": "scripts/export-public-snapshot.cjs", "mode": "755" },
-    { "source": "public/scripts/reconcile-archived-card-sources.cjs", "target": "scripts/reconcile-archived-card-sources.cjs", "mode": "755" },
-    { "source": "public/scripts/repair-control-plane-contamination.cjs", "target": "scripts/repair-control-plane-contamination.cjs", "mode": "755" },
-    { "source": "scripts/verify-export-lock.cjs", "target": "scripts/verify-export-lock.cjs", "mode": "755" },
-    { "source": "public/test/offline.cjs", "target": "test/offline.cjs" },
-    { "source": "public/test/layered-runtime.cjs", "target": "test/layered-runtime.cjs" },
-    { "source": "test/fixtures/semantic-memory.json", "target": "test/fixtures/semantic-memory.json" }
+    {
+      "source": ".gitignore",
+      "target": ".gitignore"
+    },
+    {
+      "source": ".env.example",
+      "target": ".env.example"
+    },
+    {
+      "source": "config.example.json",
+      "target": "config.example.json"
+    },
+    {
+      "source": "package.json",
+      "target": "package.json"
+    },
+    {
+      "source": "persona-policy.example.md",
+      "target": "persona-policy.example.md"
+    },
+    {
+      "source": "public-export-manifest.json",
+      "target": "public-export-manifest.json"
+    },
+    {
+      "source": "bin/tether.cjs",
+      "target": "bin/tether.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "bin/tether-memory.cjs",
+      "target": "bin/tether-memory.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "bin/tether-tools.cjs",
+      "target": "bin/tether-tools.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "bin/tether-ops.cjs",
+      "target": "bin/tether-ops.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "bin/tether-supervisor.cjs",
+      "target": "bin/tether-supervisor.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "runtime/config-loader.cjs",
+      "target": "runtime/config-loader.cjs"
+    },
+    {
+      "source": "runtime/causal-journal.cjs",
+      "target": "runtime/causal-journal.cjs"
+    },
+    {
+      "source": "runtime/identity-policy.cjs",
+      "target": "runtime/identity-policy.cjs"
+    },
+    {
+      "source": "runtime/instance-lock.cjs",
+      "target": "runtime/instance-lock.cjs"
+    },
+    {
+      "source": "runtime/selfsame-session.cjs",
+      "target": "runtime/selfsame-session.cjs"
+    },
+    {
+      "source": "runtime/tether-runtime.cjs",
+      "target": "runtime/tether-runtime.cjs"
+    },
+    {
+      "source": "runtime/channels/memory-channel.cjs",
+      "target": "runtime/channels/memory-channel.cjs"
+    },
+    {
+      "source": "runtime/channels/telegram.cjs",
+      "target": "runtime/channels/telegram.cjs"
+    },
+    {
+      "source": "runtime/channels/telegram-group.cjs",
+      "target": "runtime/channels/telegram-group.cjs"
+    },
+    {
+      "source": "runtime/channels/terminal.cjs",
+      "target": "runtime/channels/terminal.cjs"
+    },
+    {
+      "source": "runtime/memory/append-only-memory.cjs",
+      "target": "runtime/memory/append-only-memory.cjs"
+    },
+    {
+      "source": "runtime/memory/external-recall-adapter.cjs",
+      "target": "runtime/memory/external-recall-adapter.cjs"
+    },
+    {
+      "source": "runtime/memory/layered-memory.cjs",
+      "target": "runtime/memory/layered-memory.cjs"
+    },
+    {
+      "source": "runtime/memory/maintenance-supervisor.cjs",
+      "target": "runtime/memory/maintenance-supervisor.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "runtime/memory/vector-memory.cjs",
+      "target": "runtime/memory/vector-memory.cjs"
+    },
+    {
+      "source": "runtime/providers/openai-compatible.cjs",
+      "target": "runtime/providers/openai-compatible.cjs"
+    },
+    {
+      "source": "runtime/providers/runtime-provider-config.cjs",
+      "target": "runtime/providers/runtime-provider-config.cjs"
+    },
+    {
+      "source": "runtime/operations/backup.cjs",
+      "target": "runtime/operations/backup.cjs"
+    },
+    {
+      "source": "runtime/operations/health.cjs",
+      "target": "runtime/operations/health.cjs"
+    },
+    {
+      "source": "runtime/operations/storage-schema.cjs",
+      "target": "runtime/operations/storage-schema.cjs"
+    },
+    {
+      "source": "runtime/operations/supervisor.cjs",
+      "target": "runtime/operations/supervisor.cjs"
+    },
+    {
+      "source": "runtime/tools/tool-journal.cjs",
+      "target": "runtime/tools/tool-journal.cjs"
+    },
+    {
+      "source": "runtime/tools/workspace-tools.cjs",
+      "target": "runtime/tools/workspace-tools.cjs"
+    },
+    {
+      "source": "runtime/durable/durable-inbox.js",
+      "target": "runtime/durable/durable-inbox.js"
+    },
+    {
+      "source": "runtime/durable/durable-dispatcher.js",
+      "target": "runtime/durable/durable-dispatcher.js"
+    },
+    {
+      "source": "runtime/durable/durable-error-policy.js",
+      "target": "runtime/durable/durable-error-policy.js"
+    },
+    {
+      "source": "runtime/durable/durable-outbound.js",
+      "target": "runtime/durable/durable-outbound.js"
+    },
+    {
+      "source": "runtime/bridge/group-ingress-sequencer.js",
+      "target": "runtime/bridge/group-ingress-sequencer.js"
+    },
+    {
+      "source": "runtime/bridge/poll-watchdog.js",
+      "target": "runtime/bridge/poll-watchdog.js"
+    },
+    {
+      "source": "runtime/bridge/telegram-request-policy.js",
+      "target": "runtime/bridge/telegram-request-policy.js"
+    },
+    {
+      "source": "telegram-reply-fallback.js",
+      "target": "telegram-reply-fallback.js"
+    },
+    {
+      "source": "runtime/transport/chunk-emitter.js",
+      "target": "runtime/transport/chunk-emitter.js"
+    },
+    {
+      "source": "runtime/transport/sse-accumulator.js",
+      "target": "runtime/transport/sse-accumulator.js"
+    },
+    {
+      "source": "runtime/memory/compile-manifest-journal.js",
+      "target": "runtime/memory/compile-manifest-journal.js"
+    },
+    {
+      "source": "runtime/memory/candidate-output.js",
+      "target": "runtime/memory/candidate-output.js"
+    },
+    {
+      "source": "runtime/memory/memory-policy.js",
+      "target": "runtime/memory/memory-policy.js"
+    },
+    {
+      "source": "runtime/memory/conversation-history.js",
+      "target": "runtime/memory/conversation-history.js"
+    },
+    {
+      "source": "runtime/memory/memory-time.js",
+      "target": "runtime/memory/memory-time.js"
+    },
+    {
+      "source": "runtime/memory/memory-sources.js",
+      "target": "runtime/memory/memory-sources.js"
+    },
+    {
+      "source": "runtime/memory/memory-card-address.js",
+      "target": "runtime/memory/memory-card-address.js"
+    },
+    {
+      "source": "runtime/memory/memory-card-files.js",
+      "target": "runtime/memory/memory-card-files.js"
+    },
+    {
+      "source": "runtime/memory/memory-card-store.js",
+      "target": "runtime/memory/memory-card-store.js"
+    },
+    {
+      "source": "runtime/memory/memory-context-compiler.js",
+      "target": "runtime/memory/memory-context-compiler.js"
+    },
+    {
+      "source": "runtime/memory/control-plane-boundary.js",
+      "target": "runtime/memory/control-plane-boundary.js"
+    },
+    {
+      "source": "runtime/memory/memory-card-manager.js",
+      "target": "runtime/memory/memory-card-manager.js"
+    },
+    {
+      "source": "runtime/memory/semantic-memory-entities.js",
+      "target": "runtime/memory/semantic-memory-entities.js"
+    },
+    {
+      "source": "runtime/memory/semantic-memory-model-adapter.js",
+      "target": "runtime/memory/semantic-memory-model-adapter.js"
+    },
+    {
+      "source": "runtime/memory/semantic-memory-pipeline.js",
+      "target": "runtime/memory/semantic-memory-pipeline.js"
+    },
+    {
+      "source": "runtime/memory/semantic-memory-manager.js",
+      "target": "runtime/memory/semantic-memory-manager.js"
+    },
+    {
+      "source": "runtime/memory/semantic-memory-projections.js",
+      "target": "runtime/memory/semantic-memory-projections.js"
+    },
+    {
+      "source": "runtime/memory/semantic-memory-store.js",
+      "target": "runtime/memory/semantic-memory-store.js"
+    },
+    {
+      "source": "runtime/memory/semantic-memory-validators.js",
+      "target": "runtime/memory/semantic-memory-validators.js"
+    },
+    {
+      "source": "lib/telegram/group-batcher.cjs",
+      "target": "lib/telegram/group-batcher.cjs"
+    },
+    {
+      "source": "lib/telegram/group-rate-limit.cjs",
+      "target": "lib/telegram/group-rate-limit.cjs"
+    },
+    {
+      "source": "lib/telegram/image-utils.cjs",
+      "target": "lib/telegram/image-utils.cjs"
+    },
+    {
+      "source": "scripts/export-public-snapshot.cjs",
+      "target": "scripts/export-public-snapshot.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "scripts/reconcile-archived-card-sources.cjs",
+      "target": "scripts/reconcile-archived-card-sources.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "scripts/repair-control-plane-contamination.cjs",
+      "target": "scripts/repair-control-plane-contamination.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "scripts/verify-export-lock.cjs",
+      "target": "scripts/verify-export-lock.cjs",
+      "mode": "755"
+    },
+    {
+      "source": "test/offline.cjs",
+      "target": "test/offline.cjs"
+    },
+    {
+      "source": "test/external-recall.cjs",
+      "target": "test/external-recall.cjs"
+    },
+    {
+      "source": "test/layered-runtime.cjs",
+      "target": "test/layered-runtime.cjs"
+    },
+    {
+      "source": "test/fixtures/semantic-memory.json",
+      "target": "test/fixtures/semantic-memory.json"
+    }
   ]
 }

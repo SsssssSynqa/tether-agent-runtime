@@ -8,6 +8,9 @@ const path = require('node:path');
 const { loadTetherConfig } = require('../runtime/config-loader.cjs');
 const { LayeredMemory } = require('../runtime/memory/layered-memory.cjs');
 const {
+  createExternalRecallAdapter,
+} = require('../runtime/memory/external-recall-adapter.cjs');
+const {
   MemoryMaintenanceSupervisor,
 } = require('../runtime/memory/maintenance-supervisor.cjs');
 const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
@@ -129,6 +132,7 @@ async function main() {
     storageRoot: config.storage.root,
   });
   const provider = createOpenAICompatibleProvider({ providers, toolRuntime });
+  const externalRecall = createExternalRecallAdapter({ config: config.externalRecall });
   const memory = new LayeredMemory({
     directory: path.join(config.storage.root, 'memory'),
     provider,
@@ -169,6 +173,7 @@ async function main() {
     provider,
     maintenanceSupervisor,
     healthReporter,
+    externalRecall,
     personaPrompt: config.persona.prompt,
     rawTailMessages: config.runtime?.rawTailMessages,
     summaryLimit: config.runtime?.summaryLimit,
