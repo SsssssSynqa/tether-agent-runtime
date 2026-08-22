@@ -446,13 +446,18 @@ class TetherRuntime {
           respond: (request = {}) => this.provider.respond({
             sessionId: state.sessionId,
             channelId: channel.id,
+            causalId: causalRecord.causalId,
             ...request,
             sourceParts: request.sourceParts || message.sourceParts || [],
           }),
         });
       }
     } catch (error) {
-      if (error?.code === 'TETHER_RESPONSE_CONTRACT_INVALID') {
+      if (
+        error?.code === 'TETHER_RESPONSE_CONTRACT_INVALID'
+        || error?.providerFailure === true
+        || error?.circuitOpen === true
+      ) {
         this.causal.markInferenceRejected(causalRecord.causalId, {
           reason: error.message,
           text: error.rejectedOutput || '',

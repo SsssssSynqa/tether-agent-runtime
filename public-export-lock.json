@@ -19,13 +19,13 @@
     },
     {
       "path": "bin/tether-ops.cjs",
-      "sha256": "90b9db6266f82ec92d6a09fcc9e6a5651b146747e50dd147304e3245ecdd14f3",
-      "size": 8301
+      "sha256": "cef1b389339e16af8657be67477357153fb840c92ecc9e5409a48734cb8baa00",
+      "size": 9072
     },
     {
       "path": "bin/tether-supervisor.cjs",
-      "sha256": "f22798647bb49eb3d56cd44fcde87993c02b387b3374fb15c38caa8a56ab53c0",
-      "size": 811
+      "sha256": "b3c1bdce7a963d802ac4bffb9481fd2b6ed1c4dc0e0a5073fed5bcfb622fdd04",
+      "size": 941
     },
     {
       "path": "bin/tether-tools.cjs",
@@ -34,13 +34,13 @@
     },
     {
       "path": "bin/tether.cjs",
-      "sha256": "f29d4e6eebd534452756d44e0c5e7f7ea2a2f327d0892f3acb9ebee34830851c",
-      "size": 12169
+      "sha256": "132a90dfae8c2c27929c0aa285fc66b65a8e2e64e20a0d2b35e6b89668ab2dd1",
+      "size": 16067
     },
     {
       "path": "config.example.json",
-      "sha256": "a2a3f0eed65a58e73e7ed24f30feb6003eeeb01cad9a1dd579970a3e613345b8",
-      "size": 4346
+      "sha256": "2a35382135910c5e76f41eb607ec720e1e97176e06442dbf0e20a66e68618053",
+      "size": 4879
     },
     {
       "path": "lib/telegram/group-batcher.cjs",
@@ -59,8 +59,8 @@
     },
     {
       "path": "package.json",
-      "sha256": "e2d60b10324283badc75b1a309998b020a9020b9f6f6fd26d19d813e04e2cc88",
-      "size": 1273
+      "sha256": "e20d8b6b7a18d2085f3b0ec5dff4269d7688bd4154e1f50d4907be3488aca9bf",
+      "size": 1309
     },
     {
       "path": "persona-policy.example.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "public-export-manifest.json",
-      "sha256": "baadbfc2e88cfdc6a4cc9811a4ba1d8d6de1392b6e7f3b8182eadbad5cb715e0",
-      "size": 8930
+      "sha256": "950483f282df8fc70c1a6f91bffafd4c0d1f420c596f014c15a62c3b5f241924",
+      "size": 9176
     },
     {
       "path": "runtime/bridge/group-ingress-sequencer.js",
@@ -99,13 +99,13 @@
     },
     {
       "path": "runtime/channels/telegram-group.cjs",
-      "sha256": "aa359129f4787eaa7a341c56f670cfc10053481156a5c20911da217d58d4d6cc",
-      "size": 12931
+      "sha256": "d717b4df75ea62fa6cc6b6abbb7007d787a6a5a9d96f4cfaba11422f9a2a0541",
+      "size": 13749
     },
     {
       "path": "runtime/channels/telegram.cjs",
-      "sha256": "fd8524ca2755e0db5c95844da332599e4cf8c18c83a34e7f960f45d433947ad6",
-      "size": 38531
+      "sha256": "2f813dda150774850f78f9edaa04daf76e4342d5be9c34b32692e1a993497e75",
+      "size": 49384
     },
     {
       "path": "runtime/channels/terminal.cjs",
@@ -114,8 +114,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "96c65cea004de1caae4bcabc8fee07cb14f37be0e3c8988bc6e179b0ade86751",
-      "size": 28623
+      "sha256": "1b012ede019a27935caff27044e8a6487a1b6f1cf39d41c4a80b33e167ce14fb",
+      "size": 29962
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",
@@ -184,8 +184,8 @@
     },
     {
       "path": "runtime/memory/maintenance-supervisor.cjs",
-      "sha256": "60fd205c6b15ada3891f2d39a0995d45a256f96a175e7910deefb5506ff17de4",
-      "size": 4336
+      "sha256": "374af877d5675c934c54d1805af654deaa16a7d24fb7fb575c9f78ceb8bc4b26",
+      "size": 6045
     },
     {
       "path": "runtime/memory/memory-card-address.js",
@@ -284,13 +284,18 @@
     },
     {
       "path": "runtime/operations/supervisor.cjs",
-      "sha256": "0cff5e330666ebd502bc914ff6ef51d8a19998f88a0c45947454928bac08b8ca",
-      "size": 8988
+      "sha256": "9a202dd55c067c8e7a68db66f50ff0b56d12bbf4487d9b135973ffb901a8b2bc",
+      "size": 10530
     },
     {
       "path": "runtime/providers/openai-compatible.cjs",
-      "sha256": "0f3f1b8a37776df4b52a283cec6af05951a90eb68dee46108f5ece4f2b84d730",
-      "size": 27930
+      "sha256": "6e15e38948b8d3d1356893ab75bbf8fad6df07c3990e2050aaa70928a2fd654e",
+      "size": 28002
+    },
+    {
+      "path": "runtime/providers/provider-circuit-breaker.cjs",
+      "sha256": "4c1815782cf941c88bd30efe8728727e5a1848b8d73bcadf0033c50a40879eaf",
+      "size": 6146
     },
     {
       "path": "runtime/providers/runtime-provider-config.cjs",
@@ -304,8 +309,8 @@
     },
     {
       "path": "runtime/tether-runtime.cjs",
-      "sha256": "999052c80e664a5cc5fd610ebfbb333b32bef3fb9a9ec561290ad3de0aba3b7d",
-      "size": 18578
+      "sha256": "bd96344bd70722d066255c2b6cf7e5d1fe26ac6270e6ceae74d8379933cf73b5",
+      "size": 18721
     },
     {
       "path": "runtime/tools/tool-journal.cjs",
@@ -369,8 +374,13 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "90e4706a4e5babc837b423c73380b4fbd6506e50d16c373f2a1f1ea1447b9e51",
-      "size": 148952
+      "sha256": "5803f765184d2828e189c84106b627e33733a5662c31daf5f2c5a3c833b77561",
+      "size": 163170
+    },
+    {
+      "path": "test/provider-circuit.cjs",
+      "sha256": "82a9f34f29e01807226e4c8b8cc283efa6536a499b8dd77a79fbeaf99eccb2b9",
+      "size": 3282
     }
   ]
 }

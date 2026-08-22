@@ -32,6 +32,7 @@ const {
   createTelegramGroupCoordinator,
 } = require('../runtime/channels/telegram-group.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
+const { ProviderCircuitBreaker } = require('../runtime/providers/provider-circuit-breaker.cjs');
 const { toRuntimeProviders } = require('../runtime/providers/runtime-provider-config.cjs');
 const { createWorkspaceToolRuntime } = require('../runtime/tools/workspace-tools.cjs');
 const { RuntimeHealthReporter } = require('../runtime/operations/health.cjs');
@@ -55,6 +56,7 @@ let telegramGroupCoordinator = null;
 let terminalInterface = null;
 let healthReporter = null;
 let resourcesReleased = false;
+let providerCircuitNotifier = null;
 
 function diagnosticCode(error) {
   switch (error?.code) {
@@ -159,7 +161,18 @@ async function main() {
     config,
     storageRoot: config.storage.root,
   });
-  const provider = createOpenAICompatibleProvider({ providers, toolRuntime });
+  const providerCircuit = new ProviderCircuitBreaker({
+    filePath: path.join(config.storage.root, 'provider-circuit.json'),
+    threshold: 5,
+    onOpen: async () => providerCircuitNotifier?.(
+      '[bridge-status] Provider circuit opened after 5 distinct failed requests. '
+      + 'New messages will still be received and preserved, but replies are manually paused. '
+      + 'Stop runtime + supervisor, run `tether-ops circuit-clear <config>`, then explicitly resume selected updates; nothing replays automatically.',
+    ),
+  });
+  const provider = providerCircuit.wrap(
+    createOpenAICompatibleProvider({ providers, toolRuntime }),
+  );
   const externalRecall = createExternalRecallAdapter({ config: config.externalRecall });
   const memory = new LayeredMemory({
     directory: path.join(config.storage.root, 'memory'),
@@ -263,6 +276,7 @@ async function main() {
       api: telegramApi,
       ownerIds: config.owner.telegramUserIds || [],
     });
+    providerCircuitNotifier = notifyOwner;
     // Green-field only: an existing offset file means an established deployment,
     // whose downtime backlog must replay rather than vanish.
     if (config.telegram.dropBacklogOnFirstRun !== false && !fs.existsSync(telegramOffsetPath)) {

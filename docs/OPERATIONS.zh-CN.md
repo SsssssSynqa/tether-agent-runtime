@@ -155,6 +155,26 @@ node bin/tether-ops.cjs status ./restore-config.json
 
 不要为了让失败恢复能启动而删除 `session.json`。连续性无法证明时，保留现场；任何新人格创建前必须明确记录 lineage break。
 
+## 全局 provider 断路器
+
+五个不同因果请求均耗尽全部已配置 provider 后，持久化全局断路器会打开。打开后不再发起任何 provider 请求：Telegram 仍继续轮询并持久保存新消息，受影响 update 进入 `operator-paused`。断路器没有自动冷却，重启也不会清除。
+
+在线查看状态：
+
+```bash
+node bin/tether-ops.cjs circuit-status ./config.json
+```
+
+恢复必须离线并由人工明确执行：
+
+1. 停止 supervisor 与 runtime；
+2. 修复 provider 链或补充额度；
+3. 运行 `node bin/tether-ops.cjs circuit-clear ./config.json`；
+4. 逐条检查暂停 update，只对仍应回复的条目显式执行 `resume`；
+5. 重启 supervisor。
+
+清除断路器不会 requeue 或重放任何 update。
+
 ## Telegram 死信与暂停 update
 
 在线清点和查看：

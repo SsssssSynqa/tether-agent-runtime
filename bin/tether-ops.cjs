@@ -9,6 +9,10 @@ const { acquireInstanceLock } = require('../runtime/instance-lock.cjs');
 const { createBackup, restoreBackup, verifyBackup } = require('../runtime/operations/backup.cjs');
 const { evaluateRuntimeHealth, readRuntimeHealth } = require('../runtime/operations/health.cjs');
 const {
+  ProviderCircuitBreaker,
+  readProviderCircuitState,
+} = require('../runtime/providers/provider-circuit-breaker.cjs');
+const {
   inspectStorageSchema,
   migrateStorageSchema,
 } = require('../runtime/operations/storage-schema.cjs');
@@ -26,6 +30,8 @@ function usage() {
     'Usage:',
     '  tether-ops status [config.json]',
     '  tether-ops dead-letters [config.json]',
+    '  tether-ops circuit-status [config.json]',
+    '  tether-ops circuit-clear [config.json]',
     '  tether-ops inspect <update-id> [config.json]',
     '  tether-ops requeue <update-id> [config.json]',
     '  tether-ops resume <update-id> [config.json]',
@@ -109,6 +115,7 @@ function status(config) {
       record: health.record || null,
     },
     telegramInbox: inbox,
+    providerCircuit: readProviderCircuitState(path.join(config.storage.root, 'provider-circuit.json')),
   };
 }
 
@@ -117,6 +124,8 @@ function runOpsCommand(argv = process.argv.slice(2)) {
   const commands = new Set([
     'status',
     'dead-letters',
+    'circuit-status',
+    'circuit-clear',
     'inspect',
     'requeue',
     'resume',
@@ -149,7 +158,7 @@ function runOpsCommand(argv = process.argv.slice(2)) {
   if (command === 'requeue-done' && argv[2] !== '--confirm-redeliver') throw new Error(usage());
   if (['backup', 'restore'].includes(command) && !argv[1]) throw new Error(usage());
   let configPath = './config.json';
-  if (['status', 'dead-letters', 'migrate'].includes(command)) configPath = argv[1] || configPath;
+  if (['status', 'dead-letters', 'circuit-status', 'circuit-clear', 'migrate'].includes(command)) configPath = argv[1] || configPath;
   else if (['archive', 'archive-orphan', 'requeue-done'].includes(command)) configPath = argv[3] || configPath;
   else if (idCommand || ['backup', 'restore'].includes(command)) configPath = argv[2] || configPath;
   const config = configWithoutCredentials(configPath);
@@ -157,6 +166,14 @@ function runOpsCommand(argv = process.argv.slice(2)) {
   if (command === 'status') return status(config);
   if (command === 'dead-letters') {
     return inboxForConfig(config).inventory({ states: ['dead-letter', 'operator-paused'] });
+  }
+  if (command === 'circuit-status') {
+    return readProviderCircuitState(path.join(config.storage.root, 'provider-circuit.json'));
+  }
+  if (command === 'circuit-clear') {
+    return withOfflineLock(config, () => new ProviderCircuitBreaker({
+      filePath: path.join(config.storage.root, 'provider-circuit.json'),
+    }).clear('operator-cli-manual-clear'));
   }
   if (command === 'inspect') {
     const entry = inboxForConfig(config).inspect(numericUpdateId(argv[1]));

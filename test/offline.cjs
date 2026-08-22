@@ -808,12 +808,18 @@ async function main() {
     let creates = 0;
     let resumes = 0;
     let providerCalls = 0;
+    let providerFailureMode = false;
     let lastProviderMessages = [];
     const stateFile = path.join(root, 'session.json');
     const memory = new AppendOnlyMemory({ directory: path.join(root, 'memory') });
     const provider = {
       async respond({ messages }) {
         providerCalls += 1;
+        if (providerFailureMode) {
+          const error = new Error('Every configured provider failed');
+          error.providerFailure = true;
+          throw error;
+        }
         lastProviderMessages = structuredClone(messages);
         const last = messages.filter((item) => item.role === 'user').at(-1);
         return { text: `echo:${last.content}`, providerId: 'offline' };
@@ -996,6 +1002,25 @@ async function main() {
     assert.equal(recoveredContract.replayed, false);
     assert.equal(contractDeliveries.length, 1);
     assert.equal(providerCalls, 6, 'known-invalid output may be regenerated without ambiguous delivery');
+
+    const providerFailureChannel = createMemoryChannel('provider-failure-retry');
+    runtime.attach(providerFailureChannel);
+    const providerFailureInput = {
+      messageId: 'provider-failure:synthetic-1',
+      text: 'preserve a known failed inference for explicit retry',
+      metadata: { source: 'synthetic-provider-failure' },
+    };
+    providerFailureMode = true;
+    await assert.rejects(providerFailureChannel.receive(providerFailureInput), (error) => (
+      error.providerFailure === true
+    ));
+    const failedProviderCausal = [...runtime.causal.latest.values()].find(
+      (record) => record.input?.messageId === providerFailureInput.messageId,
+    );
+    assert.equal(failedProviderCausal.state, 'inference-rejected');
+    providerFailureMode = false;
+    const recoveredProviderFailure = await providerFailureChannel.receive(providerFailureInput);
+    assert.equal(recoveredProviderFailure.replayed, false);
 
     const secondSession = new SelfsameSession({
       stateFile,
@@ -3428,10 +3453,12 @@ async function main() {
     const { EventEmitter } = require('node:events');
     const supervisorRoot = path.join(root, 'supervisor-runtime');
     let supervisorMonitor = null;
+    let supervisorNow = Date.parse('2030-03-01T00:00:00.000Z');
     let spawnedCommand = null;
     let spawnedArguments = null;
     let spawnedOptions = null;
     const childSignals = [];
+    const supervisorLogs = [];
     class FakeChild extends EventEmitter {
       kill(signal) {
         childSignals.push(signal);
@@ -3461,7 +3488,8 @@ async function main() {
       clearIntervalImpl() {},
       setTimeoutImpl(callback, delay) { return { callback, delay, unref() {} }; },
       clearTimeoutImpl() {},
-      log: () => {},
+      clock: () => supervisorNow,
+      log: (message) => supervisorLogs.push(message),
       installSignalHandlers: false,
     });
     const supervisorCompletion = tetherSupervisor.start();
@@ -3480,6 +3508,16 @@ async function main() {
     }));
     supervisorMonitor();
     assert.deepEqual(childSignals, []);
+    supervisorNow += 95_000;
+    supervisorMonitor();
+    assert.deepEqual(childSignals, [], 'sleep/wake clock gap must not kill a healthy child before heartbeat recovery');
+    assert.match(supervisorLogs.at(-1), /health monitor rebased after 95s freeze/);
+    const resumedHealth = JSON.parse(fs.readFileSync(path.join(supervisorRoot, 'runtime-health.json'), 'utf8'));
+    resumedHealth.updatedAt = new Date(supervisorNow).toISOString();
+    fs.writeFileSync(path.join(supervisorRoot, 'runtime-health.json'), JSON.stringify(resumedHealth));
+    supervisorNow += tetherSupervisor.resumeGraceMs;
+    supervisorMonitor();
+    assert.deepEqual(childSignals, [], 'fresh post-wake heartbeat must retain the same runtime');
     tetherSupervisor.stop('SIGTERM');
     await supervisorCompletion;
     assert.deepEqual(childSignals, ['SIGTERM']);

@@ -406,6 +406,7 @@ function createOpenAICompatibleProvider({
     }
     const error = new Error('Every configured provider failed');
     error.failures = failures;
+    error.providerFailure = true;
     throw error;
   }
 
@@ -567,6 +568,7 @@ function createOpenAICompatibleProvider({
       if (!completion || !selectedProvider) {
         const error = new Error('Every configured provider failed');
         error.failures = failures;
+        error.providerFailure = true;
         throw error;
       }
 

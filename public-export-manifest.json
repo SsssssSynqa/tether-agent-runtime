@@ -118,6 +118,10 @@
       "target": "runtime/providers/openai-compatible.cjs"
     },
     {
+      "source": "runtime/providers/provider-circuit-breaker.cjs",
+      "target": "runtime/providers/provider-circuit-breaker.cjs"
+    },
+    {
       "source": "runtime/providers/runtime-provider-config.cjs",
       "target": "runtime/providers/runtime-provider-config.cjs"
     },
@@ -296,6 +300,10 @@
     {
       "source": "test/offline.cjs",
       "target": "test/offline.cjs"
+    },
+    {
+      "source": "test/provider-circuit.cjs",
+      "target": "test/provider-circuit.cjs"
     },
     {
       "source": "test/external-recall.cjs",

@@ -155,6 +155,26 @@ After a real restore:
 
 Do not delete `session.json` to make a failed restore start. If continuity cannot be proven, preserve the state and record an explicit lineage break before any new persona is created.
 
+## Global provider circuit
+
+Five distinct causal requests that exhaust every configured provider open a persistent global circuit. An open circuit performs no provider calls: Telegram polling and durable persistence continue, while affected updates become `operator-paused`. The circuit never closes on a timer and startup does not clear it.
+
+Inspect it online:
+
+```bash
+node bin/tether-ops.cjs circuit-status ./config.json
+```
+
+Recovery is deliberately offline and manual:
+
+1. stop the supervisor and runtime;
+2. repair or replenish the provider chain;
+3. run `node bin/tether-ops.cjs circuit-clear ./config.json`;
+4. inspect paused updates individually and explicitly `resume` only those that should still receive a reply;
+5. restart the supervisor.
+
+Clearing the circuit does not requeue or replay any update.
+
 ## Telegram dead letters and paused updates
 
 Inventory and inspect live:

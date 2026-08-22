@@ -79,6 +79,21 @@ class TetherSupervisor {
       maxRestartsPerWindow: Number(settings.maxRestartsPerWindow || 8),
       shutdownGraceMs: Number(settings.shutdownGraceMs || 15_000),
     };
+    // A laptop suspend freezes both the runtime heartbeat and this monitor.
+    // On wake, the monitor callback may run before the runtime's heartbeat
+    // callback and misclassify the whole sleep interval as a dead child.  A
+    // large monitor gap is therefore a clock discontinuity, not health
+    // evidence. Give the existing child one bounded heartbeat window to
+    // publish fresh health; genuine stalls still trip normally because their
+    // monitor callbacks continue at the ordinary interval.
+    this.suspendGapMs = Math.max(
+      this.settings.heartbeatStaleMs,
+      this.settings.monitorIntervalMs * 3,
+    );
+    this.resumeGraceMs = Math.max(
+      this.settings.monitorIntervalMs * 2,
+      Math.min(30_000, Math.floor(this.settings.heartbeatStaleMs / 3)),
+    );
     this.healthFile = path.join(this.storageRoot, 'runtime-health.json');
     this.budget = new RestartBudget({
       maxRestarts: this.settings.maxRestartsPerWindow,
@@ -87,6 +102,8 @@ class TetherSupervisor {
     this.child = null;
     this.runId = null;
     this.spawnedAt = 0;
+    this.lastMonitorAt = 0;
+    this.resumeGraceUntil = 0;
     this.restartAttempt = 0;
     this.stopping = false;
     this.terminatingChild = false;
@@ -194,9 +211,23 @@ class TetherSupervisor {
 
   _monitor() {
     if (!this.child || this.stopping) return;
+    const now = this.clock();
+    const monitorGap = this.lastMonitorAt ? now - this.lastMonitorAt : 0;
+    this.lastMonitorAt = now;
+    if (monitorGap > this.suspendGapMs) {
+      const suspendedFor = Math.max(0, monitorGap - this.settings.monitorIntervalMs);
+      this.spawnedAt += suspendedFor;
+      this.resumeGraceUntil = now + this.resumeGraceMs;
+      this.log(
+        `[tether-supervisor] health monitor rebased after ${Math.round(monitorGap / 1000)}s `
+        + `freeze; waiting ${Math.round(this.resumeGraceMs / 1000)}s for a fresh heartbeat`,
+      );
+      return;
+    }
+    if (now < this.resumeGraceUntil) return;
     const decision = evaluateRuntimeHealth(readRuntimeHealth(this.healthFile), {
       expectedRunId: this.runId,
-      now: this.clock(),
+      now,
       spawnedAt: this.spawnedAt,
       readyTimeoutMs: this.settings.readyTimeoutMs,
       staleAfterMs: this.settings.heartbeatStaleMs,
@@ -208,6 +239,8 @@ class TetherSupervisor {
     if (this.stopping) return;
     this.runId = crypto.randomUUID();
     this.spawnedAt = this.clock();
+    this.lastMonitorAt = this.spawnedAt;
+    this.resumeGraceUntil = 0;
     this.terminatingChild = false;
     const child = this.spawnImpl(process.execPath, [this.runtimeEntrypoint, this.configPath], {
       stdio: 'inherit',
