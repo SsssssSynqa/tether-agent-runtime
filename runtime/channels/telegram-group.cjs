@@ -150,6 +150,11 @@ function createTelegramGroupCoordinator({
   maxPendingMessages = 100,
   maxReplies = 6,
   allowedReactions = [],
+  // Ported from the source bridge (2026-08-22): the batcher already throttles
+  // and filters these notices (human-containing batches, 5-minute cooldown);
+  // Tether's first release wired null here and lost the operator's only signal
+  // that a group batch kept failing.
+  notifyFailure = null,
   log = console.log,
 } = {}) {
   if (!channel?.prepareUpdate || !channel?.ingestPreparedMessage) {
@@ -199,7 +204,7 @@ function createTelegramGroupCoordinator({
       return [];
     },
     sendReply: async () => true,
-    notifyFailure: null,
+    notifyFailure: typeof notifyFailure === 'function' ? notifyFailure : null,
     log,
     timing,
     isImportantMessage: () => false,

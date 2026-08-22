@@ -474,11 +474,37 @@ function createFileOffsetStore(filePath) {
   };
 }
 
+// Owner notifications — ported from the Syner production bridge (2026-08-22).
+// The source bridge tells its owner about dead-letters, failed group batches,
+// and fatal states over Telegram itself; Tether's first release demoted all of
+// those to local log lines, which nobody watches (the 8/9 "bridge fell silent"
+// incident was exactly this gap). Best-effort by design: a notification failure
+// must never break the failure path it reports on.
+function createOwnerNotifier({ api, ownerIds = [], log = console.error } = {}) {
+  const target = (ownerIds || []).map(String).filter(Boolean)[0] || null;
+  return async (text) => {
+    if (!target || !api?.sendMessage) return false;
+    try {
+      await api.sendMessage({ chat_id: target, text: String(text || '').slice(0, 4000) });
+      return true;
+    } catch (error) {
+      log(`[tether] owner notification failed: ${error.message}`);
+      return false;
+    }
+  };
+}
+
 function createDurableUpdateHandler({
   channel,
   inbox,
   dispatcher,
   groupCoordinator = null,
+  // Ported from the source bridge (2026-08-22): a failed private turn used to
+  // die silently here — durable retry keeps working, but the person on the
+  // other end just sees nothing. One notice per update, on the first failure
+  // only (retry-loop failures never pass through this handler again).
+  turnFailureNotice = null,
+  api = null,
   log = console.error,
 } = {}) {
   if (!channel?.normalizeUpdate) throw new Error('Durable Telegram ingress requires a channel');
@@ -495,11 +521,17 @@ function createDurableUpdateHandler({
     if (prior && prior.state !== 'received') {
       return { durable: true, deferredToRetry: true };
     }
-    const task = groupCoordinator && channel.isGroupUpdate(update)
+    const isGroup = channel.isGroupUpdate(update);
+    const task = groupCoordinator && isGroup
       ? groupCoordinator.ingestUpdate(update)
       : dispatcher.processUpdate(update);
     task.catch((error) => {
       log(`[tether] durable Telegram dispatch failed update=${updateId}: ${error.message}`);
+      const chatId = telegramMessageFromUpdate(update)?.chat?.id;
+      if (!isGroup && turnFailureNotice && api?.sendMessage && chatId != null) {
+        api.sendMessage({ chat_id: chatId, text: String(turnFailureNotice) })
+          .catch((noticeError) => log(`[tether] turn failure notice failed: ${noticeError.message}`));
+      }
     });
     return { durable: true };
   };
@@ -1011,6 +1043,7 @@ function createTelegramChannel({
 
 module.exports = {
   createFileOffsetStore,
+  createOwnerNotifier,
   createTelegramApi,
   createTelegramChannel,
   createDurableUpdateHandler,

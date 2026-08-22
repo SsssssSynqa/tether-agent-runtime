@@ -244,6 +244,16 @@ function validateConfig(config) {
   ) {
     errors.push('telegram.pollTimeoutSeconds must be zero or a positive number');
   }
+  if (config.telegram?.startupNotice != null && typeof config.telegram.startupNotice !== 'boolean') {
+    errors.push('telegram.startupNotice must be boolean');
+  }
+  if (
+    config.telegram?.turnFailureNotice != null
+    && config.telegram.turnFailureNotice !== false
+    && typeof config.telegram.turnFailureNotice !== 'string'
+  ) {
+    errors.push('telegram.turnFailureNotice must be a string or false');
+  }
   if (
     config.telegram?.retryBaseMs != null
     && config.telegram?.retryMaxMs != null

@@ -20,6 +20,7 @@ const { createTerminalChannel } = require('../runtime/channels/terminal.cjs');
 const {
   createFileOffsetStore,
   createDurableUpdateHandler,
+  createOwnerNotifier,
   createTelegramApi,
   createTelegramChannel,
 } = require('../runtime/channels/telegram.cjs');
@@ -213,8 +214,9 @@ async function main() {
       releaseResources();
       process.exit(1);
     };
+    const telegramApi = createTelegramApi({ token, apiBase: config.telegram.apiBase });
     const telegram = createTelegramChannel({
-      api: createTelegramApi({ token, apiBase: config.telegram.apiBase }),
+      api: telegramApi,
       ownerIds: config.owner.telegramUserIds || [],
       allowedGroups: config.telegram.allowedGroups || {},
       noReplyGroupIds: config.telegram.noReplyGroupIds || [],
@@ -241,6 +243,10 @@ async function main() {
     telegramChannel = telegram;
     runtime.attach(telegram);
     await telegram.initialize();
+    const notifyOwner = createOwnerNotifier({
+      api: telegramApi,
+      ownerIds: config.owner.telegramUserIds || [],
+    });
     const durableInbox = new DurableInbox({
       filePath: path.join(config.storage.root, 'telegram-inbox.jsonl'),
       maxBytes: config.telegram.durableInboxMaxBytes,
@@ -256,6 +262,10 @@ async function main() {
       dispatchGroupRun: (entries) => groupCoordinator.dispatchRun(entries),
       notifyDeadLetter: async (record) => {
         console.error(`[tether] Telegram update entered dead-letter: ${record.updateId}`);
+        await notifyOwner(
+          `[bridge-status] Telegram update ${record.updateId} entered dead-letter after `
+          + `${record.attempts} attempts and will not retry on its own. Last error: ${record.error}`,
+        );
       },
       retryIntervalMs: config.telegram.retryIntervalMs,
     });
@@ -266,6 +276,12 @@ async function main() {
       maxPendingMessages: config.telegram.groupMaxPendingMessages,
       maxReplies: config.telegram.groupMaxReplies,
       allowedReactions: config.telegram.groupAllowedReactions,
+      notifyFailure: async (chatId, error, batch) => {
+        const title = batch?.at(-1)?.metadata?.chatTitle || chatId;
+        await notifyOwner(
+          `[bridge-status] A group reply batch in "${title}" failed and paused: ${error.message}`,
+        );
+      },
     });
     telegramGroupCoordinator = groupCoordinator;
     telegramDispatcher = dispatcher;
@@ -274,10 +290,18 @@ async function main() {
       inbox: durableInbox,
       dispatcher,
       groupCoordinator,
+      turnFailureNotice: config.telegram.turnFailureNotice === false
+        ? null
+        : (config.telegram.turnFailureNotice
+          || '[bridge-status] That turn hit an error; it stays queued and retries automatically.'),
+      api: telegramApi,
     }));
     await dispatcher.replayAll();
     dispatcher.start();
     telegram.start().catch(failTelegram);
+    if (config.telegram.startupNotice === true) {
+      await notifyOwner(`[bridge-status] ${config.agent.displayName} bridge runtime started.`);
+    }
   }
   terminalInterface = terminal.start();
   healthReporter.ready({ sessionId: sessionState.sessionId });

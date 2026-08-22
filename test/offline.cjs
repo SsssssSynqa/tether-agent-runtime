@@ -83,6 +83,7 @@ const { sendWithGroupRateLimit } = require('../lib/telegram/group-rate-limit.cjs
 const {
   createFileOffsetStore,
   createDurableUpdateHandler,
+  createOwnerNotifier,
   createTelegramApi,
   createTelegramChannel,
   normalizeTelegramUpdate,
@@ -1465,6 +1466,122 @@ async function main() {
       classifyDurableError({ code: 'TETHER_DELIVERY_AMBIGUOUS' }),
       { action: 'operator-pause', category: 'causal_ambiguity' },
     );
+
+    // Owner notifier (ported 2026-08-22): best-effort, never throws, first owner id.
+    {
+      const ownerSends = [];
+      const notify = createOwnerNotifier({
+        api: { async sendMessage(params) { ownerSends.push(params); return { ok: true }; } },
+        ownerIds: ['101', '202'],
+        log: () => {},
+      });
+      assert.equal(await notify('hello owner'), true);
+      assert.deepEqual(ownerSends, [{ chat_id: '101', text: 'hello owner' }]);
+      const noOwner = createOwnerNotifier({
+        api: { async sendMessage() { throw new Error('unreachable'); } },
+        ownerIds: [],
+        log: () => {},
+      });
+      assert.equal(await noOwner('dropped'), false);
+      const failingNotify = createOwnerNotifier({
+        api: { async sendMessage() { throw new Error('boom'); } },
+        ownerIds: ['101'],
+        log: () => {},
+      });
+      assert.equal(await failingNotify('still safe'), false);
+    }
+
+    // Turn failure notice (ported 2026-08-22): a failed private dispatch tells the
+    // sender once; group updates and successful turns stay silent.
+    {
+      const noticeRoot = path.join(root, 'turn-failure-notice');
+      const noticeInbox = new DurableInbox({
+        filePath: path.join(noticeRoot, 'inbox.jsonl'),
+        log: () => {},
+      });
+      const noticeSends = [];
+      const noticeChannel = createTelegramChannel({
+        api: {
+          async call() { return { ok: true, result: [] }; },
+          async sendMessage(params) { noticeSends.push(params); return { ok: true }; },
+        },
+        ownerIds: ['11'],
+        allowedGroupIds: ['77'],
+        offsetStore: createFileOffsetStore(path.join(noticeRoot, 'offset.txt')),
+        log: () => {},
+      });
+      noticeChannel.onMessage(async () => ({ ignored: true }));
+      const noticeApi = {
+        async sendMessage(params) { noticeSends.push(params); return { ok: true }; },
+      };
+      const noticeHandler = createDurableUpdateHandler({
+        channel: noticeChannel,
+        inbox: noticeInbox,
+        dispatcher: {
+          async processUpdate(update) {
+            if (String(update.message?.text || '').includes('fail')) throw new Error('turn exploded');
+            return { ok: true };
+          },
+        },
+        groupCoordinator: {
+          async ingestUpdate() { throw new Error('group turn exploded'); },
+        },
+        turnFailureNotice: 'turn failed, retrying',
+        api: noticeApi,
+        log: () => {},
+      });
+      await noticeHandler({
+        update_id: 60,
+        message: { message_id: 1, text: 'please fail', from: { id: 11 }, chat: { id: 11, type: 'private' } },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(noticeSends, [{ chat_id: 11, text: 'turn failed, retrying' }]);
+      await noticeHandler({
+        update_id: 61,
+        message: { message_id: 2, text: 'ok', from: { id: 11 }, chat: { id: 11, type: 'private' } },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(noticeSends.length, 1);
+      await noticeHandler({
+        update_id: 62,
+        message: { message_id: 3, text: 'fail in group', from: { id: 11 }, chat: { id: 77, type: 'group' } },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(noticeSends.length, 1);
+    }
+
+    // Group coordinator failure notice wiring (ported 2026-08-22).
+    {
+      const wiringRoot = path.join(root, 'group-notify-wiring');
+      const wiringInbox = new DurableInbox({
+        filePath: path.join(wiringRoot, 'inbox.jsonl'),
+        log: () => {},
+      });
+      const wiringChannel = createTelegramChannel({
+        api: {
+          async call() { return { ok: true, result: [] }; },
+          async sendMessage() { return { ok: true }; },
+        },
+        ownerIds: ['11'],
+        allowedGroupIds: ['77'],
+        offsetStore: createFileOffsetStore(path.join(wiringRoot, 'offset.txt')),
+        log: () => {},
+      });
+      wiringChannel.onMessage(async () => ({ ignored: true }));
+      const wired = createTelegramGroupCoordinator({
+        channel: wiringChannel,
+        inbox: wiringInbox,
+        notifyFailure: async () => {},
+        log: () => {},
+      });
+      assert.equal(typeof wired.batcher.notifyFailure, 'function');
+      const unwired = createTelegramGroupCoordinator({
+        channel: wiringChannel,
+        inbox: wiringInbox,
+        log: () => {},
+      });
+      assert.equal(unwired.batcher.notifyFailure, null);
+    }
 
     for (const [name, content, line] of [
       ['middle', '{"state":"done","updateId":1}\nnot-json\n{"state":"done","updateId":2}\n', 2],
