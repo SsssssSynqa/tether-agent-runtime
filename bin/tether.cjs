@@ -239,6 +239,10 @@ async function main() {
       pollFailureGiveUpMs: config.telegram.pollFailureGiveUpMs,
       pollStallTimeoutMs: config.telegram.pollStallTimeoutMs,
       onPollFatal: failTelegram,
+      typingHeartbeatMs: config.telegram.typingHeartbeatMs,
+      groupOwnerMessagesPerMinute: config.telegram.groupOwnerMessagesPerMinute,
+      groupBotMessagesPerMinute: config.telegram.groupBotMessagesPerMinute,
+      groupUserMessagesPerMinute: config.telegram.groupUserMessagesPerMinute,
     });
     telegramChannel = telegram;
     runtime.attach(telegram);

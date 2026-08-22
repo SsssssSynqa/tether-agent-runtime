@@ -1583,6 +1583,76 @@ async function main() {
       assert.equal(unwired.batcher.notifyFailure, null);
     }
 
+    // Per-sender group rate limits and the consecutive-bot cap (ported
+    // 2026-08-22): limited messages degrade to respond=false observations.
+    {
+      const limitRoot = path.join(root, 'group-ingress-limits');
+      const limitChannel = createTelegramChannel({
+        api: {
+          async call() { return { ok: true, result: [] }; },
+          async sendMessage() { return { ok: true }; },
+        },
+        ownerIds: ['11'],
+        allowedGroups: { 77: { mode: 'all', maxConsecutiveBotMessages: 2 } },
+        offsetStore: createFileOffsetStore(path.join(limitRoot, 'offset.txt')),
+        groupUserMessagesPerMinute: 2,
+        groupBotMessagesPerMinute: 10,
+        groupOwnerMessagesPerMinute: 10,
+        log: () => {},
+      });
+      const groupUpdate = (updateId, fromId, { bot = false, text = 'hi' } = {}) => ({
+        update_id: updateId,
+        message: {
+          message_id: updateId,
+          text,
+          from: { id: fromId, is_bot: bot },
+          chat: { id: 77, type: 'group' },
+        },
+      });
+      assert.equal((await limitChannel.prepareUpdate(groupUpdate(70, 55))).respond, true);
+      assert.equal((await limitChannel.prepareUpdate(groupUpdate(71, 55))).respond, true);
+      assert.equal((await limitChannel.prepareUpdate(groupUpdate(72, 55))).respond, false);
+      assert.equal((await limitChannel.prepareUpdate(groupUpdate(73, 11))).respond, true);
+      assert.equal((await limitChannel.prepareUpdate(groupUpdate(74, 90, { bot: true }))).respond, true);
+      assert.equal((await limitChannel.prepareUpdate(groupUpdate(75, 90, { bot: true }))).respond, true);
+      assert.equal((await limitChannel.prepareUpdate(groupUpdate(76, 90, { bot: true }))).respond, false);
+      assert.equal((await limitChannel.prepareUpdate(groupUpdate(77, 11))).respond, true);
+      assert.equal((await limitChannel.prepareUpdate(groupUpdate(78, 90, { bot: true }))).respond, true);
+    }
+
+    // Typing heartbeat (ported 2026-08-22): fires while a responding turn is in
+    // flight, stays silent for observations, never breaks the turn on failure.
+    {
+      const typingRoot = path.join(root, 'typing-heartbeat');
+      const chatActions = [];
+      const typingChannel = createTelegramChannel({
+        api: {
+          async call(method, params) {
+            if (method === 'sendChatAction') chatActions.push(params);
+            return { ok: true, result: [] };
+          },
+          async sendMessage() { return { ok: true }; },
+        },
+        ownerIds: ['11'],
+        allowedGroups: { 77: { mode: 'mention', ownerAlways: false } },
+        offsetStore: createFileOffsetStore(path.join(typingRoot, 'offset.txt')),
+        typingHeartbeatMs: 1000,
+        log: () => {},
+      });
+      typingChannel.onMessage(async () => ({ done: true }));
+      await typingChannel.ingestUpdate({
+        update_id: 80,
+        message: { message_id: 1, text: 'hello', from: { id: 11 }, chat: { id: 11, type: 'private' } },
+      });
+      assert.deepEqual(chatActions, [{ chat_id: '11', action: 'typing' }]);
+      chatActions.length = 0;
+      await typingChannel.ingestUpdate({
+        update_id: 81,
+        message: { message_id: 2, text: 'not a mention', from: { id: 55 }, chat: { id: 77, type: 'group' } },
+      });
+      assert.deepEqual(chatActions, []);
+    }
+
     for (const [name, content, line] of [
       ['middle', '{"state":"done","updateId":1}\nnot-json\n{"state":"done","updateId":2}\n', 2],
       ['tail', '{"state":"done","updateId":1}\n{"state":', 2],

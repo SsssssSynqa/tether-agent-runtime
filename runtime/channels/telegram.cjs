@@ -562,6 +562,10 @@ function createTelegramChannel({
   pollFailureGiveUpMs = 10 * 60 * 1000,
   pollStallTimeoutMs = 0,
   onPollFatal = null,
+  typingHeartbeatMs = 4000,
+  groupOwnerMessagesPerMinute = 60,
+  groupBotMessagesPerMinute = 12,
+  groupUserMessagesPerMinute = 30,
   log = console.log,
 } = {}) {
   if (!api?.call || !api?.sendMessage) throw new Error('Telegram channel requires an API client');
@@ -589,6 +593,60 @@ function createTelegramChannel({
     maxImageBytes,
     log,
   });
+
+  // Typing heartbeat — ported from the source bridge (2026-08-22). Generation
+  // takes 10-30 seconds; without the indicator the chat looks dead the whole
+  // time. Fire-and-forget: a failed chat action never affects the turn.
+  function startTypingHeartbeat(chatId) {
+    const intervalMs = Number(typingHeartbeatMs) || 0;
+    if (intervalMs <= 0 || chatId == null) return () => {};
+    const beat = () => {
+      api.call('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
+    };
+    beat();
+    const timer = setInterval(beat, Math.max(1000, intervalMs));
+    timer.unref?.();
+    return () => clearInterval(timer);
+  }
+
+  // Per-sender group ingress limits — ported from the source bridge
+  // (2026-08-22). Without them one runaway bot or flooding member turns every
+  // message into provider spend; the source ran these caps in production for
+  // months. A limited message is not dropped: it degrades to respond=false and
+  // still enters the continuous history as an observation.
+  const groupSenderWindows = new Map();
+  const groupBotRuns = new Map();
+
+  function allowGroupSenderIngress(chatId, senderId, senderIsBot, owner) {
+    const limit = owner
+      ? Number(groupOwnerMessagesPerMinute)
+      : senderIsBot
+        ? Number(groupBotMessagesPerMinute)
+        : Number(groupUserMessagesPerMinute);
+    if (!Number.isFinite(limit) || limit <= 0) return true;
+    const key = `${chatId}:${senderId}`;
+    const windowStart = Date.now() - 60_000;
+    const recent = (groupSenderWindows.get(key) || []).filter((at) => at >= windowStart);
+    if (recent.length >= limit) {
+      groupSenderWindows.set(key, recent);
+      return false;
+    }
+    recent.push(Date.now());
+    groupSenderWindows.set(key, recent);
+    return true;
+  }
+
+  // Bot-to-bot ping-pong guard: consecutive responded bot messages per chat,
+  // reset by any human message. Policy-configurable, 0 disables.
+  function allowBotRun(chatId, policy) {
+    const limit = policy.maxConsecutiveBotMessages == null
+      ? 8
+      : Number(policy.maxConsecutiveBotMessages);
+    if (!Number.isFinite(limit) || limit <= 0) return true;
+    const next = (groupBotRuns.get(String(chatId)) || 0) + 1;
+    groupBotRuns.set(String(chatId), next);
+    return next <= limit;
+  }
 
   // Runs on the dispatcher's task, never on the polling loop, so a slow or hung
   // transcriber delays one message instead of stopping every channel.
@@ -756,6 +814,23 @@ function createTelegramChannel({
         { includeLocalPaths: false, imageNotes: await visionNotesForImages(images) },
       );
       if (!text && !images.length && !files.length) return null;
+      let respond = groupShouldRespond({ ...normalized, text }, policy, botIdentity);
+      if (normalized.metadata.isGroup) {
+        if (!normalized.metadata.senderIsBot) groupBotRuns.set(String(normalized.metadata.chatId), 0);
+        if (respond && !allowGroupSenderIngress(
+          normalized.metadata.chatId,
+          normalized.metadata.senderId,
+          normalized.metadata.senderIsBot,
+          normalized.metadata.owner,
+        )) {
+          log(`[tether] group sender rate limited to observation chat=${normalized.metadata.chatId} sender=${normalized.metadata.senderId}`);
+          respond = false;
+        }
+        if (respond && normalized.metadata.senderIsBot && !allowBotRun(normalized.metadata.chatId, policy)) {
+          log(`[tether] consecutive bot cap reached, observing chat=${normalized.metadata.chatId}`);
+          respond = false;
+        }
+      }
       const attachments = attachmentReferences(images, files, attachmentRoot);
       const semanticRawMessage = {
         messageId: normalized.messageId,
@@ -775,7 +850,7 @@ function createTelegramChannel({
       return {
         ...normalized,
         text,
-        respond: groupShouldRespond({ ...normalized, text }, policy, botIdentity),
+        respond,
         sourceParts: imageSourceParts(images),
         attachmentFiles: attachmentCacheRecords(images),
         metadata: {
@@ -979,13 +1054,27 @@ function createTelegramChannel({
     },
     async ingestPreparedMessage(message) {
       if (!handler) throw new Error('Telegram channel is not attached');
-      return handler(message);
+      const stopTyping = message?.respond === false
+        ? () => {}
+        : startTypingHeartbeat(message?.metadata?.chatId);
+      try {
+        return await handler(message);
+      } finally {
+        stopTyping();
+      }
     },
     async ingestUpdate(update) {
       if (!handler) throw new Error('Telegram channel is not attached');
       const prepared = await channel.prepareUpdate(update);
       if (!prepared) return { ignored: true };
-      return handler(prepared);
+      const stopTyping = prepared.respond === false
+        ? () => {}
+        : startTypingHeartbeat(prepared.metadata?.chatId);
+      try {
+        return await handler(prepared);
+      } finally {
+        stopTyping();
+      }
     },
     start() {
       if (!handler) throw new Error('Telegram channel is not attached');

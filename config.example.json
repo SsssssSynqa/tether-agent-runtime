@@ -12,8 +12,16 @@
     "policyFile": "./persona-policy.example.md"
   },
   "entities": [
-    { "entityId": "owner", "canonicalDisplayName": "Owner", "type": "person" },
-    { "entityId": "agent", "canonicalDisplayName": "Your Agent", "type": "ai" }
+    {
+      "entityId": "owner",
+      "canonicalDisplayName": "Owner",
+      "type": "person"
+    },
+    {
+      "entityId": "agent",
+      "canonicalDisplayName": "Your Agent",
+      "type": "ai"
+    }
   ],
   "addressPolicy": {
     "canonicalOwnerName": "Owner",
@@ -48,13 +56,28 @@
     "maxWriteBytes": 1048576,
     "maxDirectoryEntries": 200,
     "workspaceRoots": [
-      { "id": "workspace", "path": "../private-tether-workspace" }
+      {
+        "id": "workspace",
+        "path": "../private-tether-workspace"
+      }
     ],
     "policies": {
-      "terminal": { "read": "allow", "write": "allow" },
-      "telegramPrivate": { "read": "allow", "write": "approval" },
-      "telegramGroup": { "read": "deny", "write": "deny" },
-      "default": { "read": "deny", "write": "deny" }
+      "terminal": {
+        "read": "allow",
+        "write": "allow"
+      },
+      "telegramPrivate": {
+        "read": "allow",
+        "write": "approval"
+      },
+      "telegramGroup": {
+        "read": "deny",
+        "write": "deny"
+      },
+      "default": {
+        "read": "deny",
+        "write": "deny"
+      }
     }
   },
   "externalRecall": {
@@ -102,9 +125,12 @@
       "GROUP_CHAT_ID": {
         "enabled": false,
         "mode": "mention",
-        "mentionPatterns": ["Your Agent"],
+        "mentionPatterns": [
+          "Your Agent"
+        ],
         "ownerAlways": true,
-        "ignoreBotMessages": false
+        "ignoreBotMessages": false,
+        "maxConsecutiveBotMessages": 8
       }
     },
     "noReplyGroupIds": [],
@@ -132,7 +158,13 @@
       "sameSenderMaxMs": 2500,
       "multiSenderIdleMs": 1600,
       "multiSenderMaxMs": 4000
-    }
+    },
+    "typingHeartbeatMs": 4000,
+    "groupOwnerMessagesPerMinute": 60,
+    "groupBotMessagesPerMinute": 12,
+    "groupUserMessagesPerMinute": 30,
+    "startupNotice": false,
+    "turnFailureNotice": "[bridge-status] That turn hit an error; it stays queued and retries automatically."
   },
   "providers": [
     {

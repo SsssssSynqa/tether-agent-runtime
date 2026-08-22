@@ -93,6 +93,26 @@ function validateConfig(config) {
         errors.push(`telegram.allowedGroups.${chatId}.${field} must be boolean`);
       }
     }
+    if (
+      policy.maxConsecutiveBotMessages != null
+      && (!Number.isSafeInteger(Number(policy.maxConsecutiveBotMessages))
+        || Number(policy.maxConsecutiveBotMessages) < 0)
+    ) {
+      errors.push(`telegram.allowedGroups.${chatId}.maxConsecutiveBotMessages must be zero or a positive integer`);
+    }
+  }
+  for (const field of [
+    'typingHeartbeatMs',
+    'groupOwnerMessagesPerMinute',
+    'groupBotMessagesPerMinute',
+    'groupUserMessagesPerMinute',
+  ]) {
+    if (
+      config.telegram?.[field] != null
+      && (!Number.isFinite(Number(config.telegram[field])) || Number(config.telegram[field]) < 0)
+    ) {
+      errors.push(`telegram.${field} must be zero (disabled) or a positive number`);
+    }
   }
   for (const field of ['noReplyGroupIds', 'rateLimitedGroupIds']) {
     if (config.telegram?.[field] != null && !Array.isArray(config.telegram[field])) {
