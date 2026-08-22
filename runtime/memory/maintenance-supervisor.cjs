@@ -115,6 +115,17 @@ class MemoryMaintenanceSupervisor {
     return this.memory.maintainOne();
   }
 
+  // 2026-08-18：失败日志限流窗口——10 分钟内至多放行一条（失败与恢复共用一个窗口）。
+  // 返回 true 时同时占用窗口；窗口内的调用返回 false，由调用方计入 suppressed。
+  _failLogWindowOpen() {
+    const now = Date.now();
+    if (!this._lastFailLogAt || now - this._lastFailLogAt > 10 * 60 * 1000) {
+      this._lastFailLogAt = now;
+      return true;
+    }
+    return false;
+  }
+
   async _cycle() {
     if (this.stopped) return;
     if (this.running) {
@@ -126,6 +137,10 @@ class MemoryMaintenanceSupervisor {
     let nextDelay = this.idleIntervalMs;
     try {
       const result = await this.runOnce();
+      // 2026-08-18：失败→成功震荡时报告恢复（纳入同一限流窗口，防震荡刷屏）
+      if (this.consecutiveFailures > 0 && this._failLogWindowOpen()) {
+        this.log('[tether] memory supervisor recovered');
+      }
       this.consecutiveFailures = 0;
       this._emitState({ state: 'healthy', consecutiveFailures: 0, result });
       if (resultDidWork(result)) nextDelay = this.activeDelayMs;
@@ -136,10 +151,26 @@ class MemoryMaintenanceSupervisor {
         this.errorMaxDelayMs,
         this.errorBaseDelayMs * (2 ** Math.min(this.consecutiveFailures - 1, 10)),
       );
-      this.log(
-        `[tether] memory supervisor retry ${this.consecutiveFailures} scheduled in `
-        + `${nextDelay}ms: ${error.message}`,
-      );
+      // 2026-08-18：两处修整——①时间限流：渠道级故障（如上游配额耗尽）会让失败↔成功
+      // 反复震荡，每 30s 一条日志把终端对话界面刷成瀑布（Syrah 8/18 实况），改为
+      // 10 分钟窗口内只打一条并统计被抑制的条数；②AggregateError 展开：只打
+      // error.message 会把子错误全部吞掉（"One or more jobs failed" 无法诊断），
+      // 附上各子错误的首行摘要。
+      if (this._failLogWindowOpen()) {
+        const sub = Array.isArray(error.errors) && error.errors.length
+          ? ` [${error.errors.map((e) => String((e && e.message) || e).split('\n')[0].slice(0, 100)).join(' | ').slice(0, 400)}]`
+          : '';
+        const muted = this._suppressedFailLogs
+          ? ` (+${this._suppressedFailLogs} suppressed in last window)`
+          : '';
+        this._suppressedFailLogs = 0;
+        this.log(
+          `[tether] memory supervisor retry ${this.consecutiveFailures} scheduled in `
+          + `${nextDelay}ms: ${error.message}${sub}${muted}`,
+        );
+      } else {
+        this._suppressedFailLogs = (this._suppressedFailLogs || 0) + 1;
+      }
     } finally {
       this.running = false;
       if (this.runAgain) {

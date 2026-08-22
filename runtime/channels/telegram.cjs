@@ -9,6 +9,7 @@ const { sendWithGroupRateLimit } = require('../../lib/telegram/group-rate-limit.
 const {
   buildMessageTextWithAttachments,
   downloadTelegramAttachmentsWithApi,
+  transcribeImagesWithVision,
 } = require('../../lib/telegram/image-utils.cjs');
 const {
   buildTelegramGroupBatch,
@@ -16,10 +17,12 @@ const {
   renderTelegramGroupReplyHistory,
 } = require('./telegram-group.cjs');
 const { isLoopbackHostname } = require('../config-loader.cjs');
+const { createPollWatchdog } = require('../bridge/poll-watchdog.js');
 
 const DEFAULT_POLL_RETRY_DELAY_MS = 1000;
 const DEFAULT_TELEGRAM_TIMEOUT_MS = 40_000;
 const LONG_POLL_GRACE_MS = 15_000;
+const DEFAULT_POLL_STALL_CHECK_MS = 30_000;
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -109,6 +112,11 @@ function createTelegramApi({ token, apiBase = 'https://api.telegram.org', fetchI
       telegramRequestTimeoutMs(method, params),
     );
     timer.unref?.();
+    // 超时必须罩住 response.json()：headers 到了不等于 body 会流完，
+    // 之前 clearTimeout 放在 fetch 的 finally 里，body 卡住就是无限挂
+    //（2026-08-22 体检发现）。AbortSignal 对 body 读取同样生效，
+    // 所以把 clearTimeout 挪到 json 解析完成之后即可。
+    let payload;
     try {
       response = await fetchImpl(`${normalizedBase}/bot${token}/${method}`, {
         method: 'POST',
@@ -116,16 +124,11 @@ function createTelegramApi({ token, apiBase = 'https://api.telegram.org', fetchI
         body: JSON.stringify(params),
         signal: controller.signal,
       });
+      payload = await response.json();
     } catch (error) {
       throw markAmbiguousDelivery(error, method);
     } finally {
       clearTimeout(timer);
-    }
-    let payload;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      throw markAmbiguousDelivery(error, method);
     }
     if (!response.ok || !payload.ok) throw new Error(payload.description || `Telegram HTTP ${response.status}`);
     return payload;
@@ -480,8 +483,13 @@ function createTelegramChannel({
   groupAllowedReactions = [],
   groupRepairAttempts = 1,
   offsetStore,
+  vision = null,
   pollTimeoutSeconds = 30,
   pollRetryDelayMs = DEFAULT_POLL_RETRY_DELAY_MS,
+  pollMaxConsecutiveFailures = 100,
+  pollFailureGiveUpMs = 10 * 60 * 1000,
+  pollStallTimeoutMs = 0,
+  onPollFatal = null,
   log = console.log,
 } = {}) {
   if (!api?.call || !api?.sendMessage) throw new Error('Telegram channel requires an API client');
@@ -491,6 +499,8 @@ function createTelegramChannel({
   let stopped = false;
   let running = null;
   let botIdentity = { id: null, username: null };
+  let stallTimer = null;
+  let lastPollProgressAt = 0;
   const groupPolicies = allowedGroups && typeof allowedGroups === 'object'
     ? new Map(Object.entries(allowedGroups).map(([chatId, policy]) => [
         String(chatId),
@@ -507,6 +517,62 @@ function createTelegramChannel({
     maxImageBytes,
     log,
   });
+
+  // Runs on the dispatcher's task, never on the polling loop, so a slow or hung
+  // transcriber delays one message instead of stopping every channel.
+  async function visionNotesForImages(images = []) {
+    if (!vision || !images.length) return [];
+    try {
+      const { text, skipped } = await transcribeImagesWithVision(images, vision, { log });
+      const header = skipped > 0
+        ? `【图片视觉转写·${vision.model}·仅前 ${images.length - skipped} 张】`
+        : `【图片视觉转写·${vision.model}】`;
+      return [header, text];
+    } catch (error) {
+      // Honest degradation: say the eyes failed, never invent what was in frame.
+      log(`[tether] vision transcribe failed: ${error.message}`);
+      return [`（视觉转写失败：${String(error.message).slice(0, 120)}。请如实说明看不见画面内容，不要编造。）`];
+    }
+  }
+
+  function clearStallTimer() {
+    if (!stallTimer) return;
+    clearInterval(stallTimer);
+    stallTimer = null;
+  }
+
+  function startStallTimer() {
+    clearStallTimer();
+    const stallMs = Number(pollStallTimeoutMs) || 0;
+    if (stallMs <= 0) return;
+    const checkMs = Math.max(1000, Math.min(DEFAULT_POLL_STALL_CHECK_MS, stallMs));
+    // idleMs 用墙钟，interval 走单调钟：整机睡眠（合盖）期间墙钟照走、tick 不跑，
+    // 醒来第一个 tick 会把整段睡眠时长算成"卡死"。2026-08-21 实测报出 1034s/1870s，
+    // 全是合盖时长，300s 阈值从未按设计生效过。
+    // 修法：tick 之间的墙钟间隔远超 checkMs 就说明进程/整机被冻结过——
+    // 重新基线化并跳过本轮，给轮询一个完整的 stallMs 窗口去证明自己还活着。
+    let lastCheckAt = Date.now();
+    stallTimer = setInterval(() => {
+      if (stopped) return;
+      const now = Date.now();
+      const sinceLastCheck = now - lastCheckAt;
+      lastCheckAt = now;
+      if (sinceLastCheck > checkMs * 3) {
+        lastPollProgressAt = now;
+        log(`[tether] poll stall timer rebased after ${Math.round(sinceLastCheck / 1000)}s freeze (sleep/suspend), not a stall`);
+        return;
+      }
+      const idleMs = now - lastPollProgressAt;
+      if (idleMs < stallMs) return;
+      clearStallTimer();
+      const error = new Error(
+        `Telegram polling stalled: no progress for ${Math.round(idleMs / 1000)}s`,
+      );
+      log(`[tether] ${error.message}`);
+      if (typeof onPollFatal === 'function') onPollFatal(error);
+    }, checkMs);
+    stallTimer.unref?.();
+  }
 
   async function sendText(chatId, text, replyToMessageId, progress) {
     const chunks = splitTelegramText(text);
@@ -615,7 +681,7 @@ function createTelegramChannel({
         images,
         files,
         notes,
-        { includeLocalPaths: false },
+        { includeLocalPaths: false, imageNotes: await visionNotesForImages(images) },
       );
       if (!text && !images.length && !files.length) return null;
       const attachments = attachmentReferences(images, files, attachmentRoot);
@@ -691,7 +757,9 @@ function createTelegramChannel({
       return { ...restored, sourceParts };
     },
     createGroupBatchMessage(record, messages, options = {}) {
-      const built = buildTelegramGroupBatch(messages);
+      const built = buildTelegramGroupBatch(messages, {
+        allowedReactions: options.allowedReactions || groupAllowedReactions,
+      });
       const pending = options.pendingGroupImages || { sourceParts: [], records: [], tokens: [] };
       const sourceParts = [
         ...(pending.sourceParts || []),
@@ -851,6 +919,16 @@ function createTelegramChannel({
       if (!handler) throw new Error('Telegram channel is not attached');
       if (running) return running;
       stopped = false;
+      const watchdog = createPollWatchdog({
+        maxConsecutiveFailures: Number(pollMaxConsecutiveFailures) || 100,
+        maxFailureDurationMs: Number(pollFailureGiveUpMs) || 10 * 60 * 1000,
+      });
+      // A poll that keeps failing is visible to the watchdog above. A poll that
+      // stops making progress without failing — a request that never settles,
+      // or an ingress await that never resolves — is invisible to it, so the
+      // stall timer runs outside the loop and reports the silent case too.
+      lastPollProgressAt = Date.now();
+      startStallTimer();
       running = (async () => {
         let offset = offsetStore.read();
         while (!stopped) {
@@ -862,22 +940,31 @@ function createTelegramChannel({
                 : 30,
               allowed_updates: ['message', 'edited_message'],
             });
+            watchdog.recordSuccess();
+            lastPollProgressAt = Date.now();
             for (const update of payload.result || []) {
               if (rawUpdateHandler) await rawUpdateHandler(update);
               else await channel.ingestUpdate(update);
               offset = Number(update.update_id) + 1;
               offsetStore.write(offset);
+              lastPollProgressAt = Date.now();
             }
           } catch (error) {
             if (stopped) break;
+            watchdog.recordFailure();
             log(`[tether] Telegram poll/ingress retry: ${error.message}`);
+            if (watchdog.shouldGiveUp()) {
+              const fatal = new Error(`Telegram polling gave up after repeated failures: ${error.message}`);
+              fatal.cause = error;
+              throw fatal;
+            }
             await sleep(Math.max(100, Number(pollRetryDelayMs) || DEFAULT_POLL_RETRY_DELAY_MS));
           }
         }
-      })().finally(() => { running = null; });
+      })().finally(() => { clearStallTimer(); running = null; });
       return running;
     },
-    stop() { stopped = true; },
+    stop() { stopped = true; clearStallTimer(); },
   };
   return channel;
 }

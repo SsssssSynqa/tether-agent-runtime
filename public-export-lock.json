@@ -34,8 +34,8 @@
     },
     {
       "path": "bin/tether.cjs",
-      "sha256": "2ef82be0edafec2503816f19f0b1d0979f256214479fb6c6cfd6bdbd3deaf156",
-      "size": 11134
+      "sha256": "f29d4e6eebd534452756d44e0c5e7f7ea2a2f327d0892f3acb9ebee34830851c",
+      "size": 12169
     },
     {
       "path": "config.example.json",
@@ -54,8 +54,8 @@
     },
     {
       "path": "lib/telegram/image-utils.cjs",
-      "sha256": "0c0d11fbd6650a4f8297daaef36bbb44cc2c1276c47dcd63de2030af8610dcfe",
-      "size": 21731
+      "sha256": "d7aa9315e5f399f3f370408ad1a9d35cab9673bc70a454612dd7b955149546aa",
+      "size": 24479
     },
     {
       "path": "package.json",
@@ -99,13 +99,13 @@
     },
     {
       "path": "runtime/channels/telegram-group.cjs",
-      "sha256": "91e290a5656b98d77e239c2d028e8bcb655d236f7230edba4c740c6f1a8f43c3",
-      "size": 12271
+      "sha256": "aa359129f4787eaa7a341c56f670cfc10053481156a5c20911da217d58d4d6cc",
+      "size": 12931
     },
     {
       "path": "runtime/channels/telegram.cjs",
-      "sha256": "343e357565b049892db496166659898b4e3f374a6560ec42d680cafc0eb417c2",
-      "size": 35354
+      "sha256": "fd8524ca2755e0db5c95844da332599e4cf8c18c83a34e7f960f45d433947ad6",
+      "size": 38531
     },
     {
       "path": "runtime/channels/terminal.cjs",
@@ -114,8 +114,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "274ca4ff88e6a2c9a43df9328b4d89d5e43a8b8ad2c3b156acb805e0a3979cae",
-      "size": 26767
+      "sha256": "96c65cea004de1caae4bcabc8fee07cb14f37be0e3c8988bc6e179b0ade86751",
+      "size": 28623
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",

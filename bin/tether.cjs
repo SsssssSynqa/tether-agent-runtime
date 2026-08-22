@@ -73,6 +73,29 @@ function diagnosticCode(error) {
 function reportFailure(scope, error) {
   const label = scope === 'telegram' ? 'telegram channel' : 'startup';
   console.error(`[tether] ${label} failed (${diagnosticCode(error)})`);
+  // 分类码只够分诊，不够确诊：TETHER_UNEXPECTED_FAILURE 是 default 兜底，
+  // 2026-08-21 一天 5 次 fatal 没有一条留下原因，只能盲修。
+  // message + stack 是病历本体，必须落日志。
+  if (error) {
+    console.error(`[tether] ${label} cause: ${error.message || error}`);
+    if (error.stack) console.error(error.stack);
+  }
+}
+
+// Resolves the image transcriber's credential from the environment, the same
+// rule provider credentials follow: the key never sits in the config file.
+function resolveTelegramVision(raw) {
+  if (!raw || raw.enabled === false) return null;
+  const apiKey = process.env[raw.apiKeyEnv];
+  if (!apiKey) throw new Error(`Missing Telegram vision credential env: ${raw.apiKeyEnv}`);
+  return {
+    model: raw.model,
+    baseUrl: raw.baseUrl,
+    apiKey,
+    timeoutMs: raw.timeoutMs,
+    maxImages: raw.maxImages,
+    maxTokens: raw.maxTokens,
+  };
 }
 
 function releaseResources() {
@@ -182,6 +205,14 @@ async function main() {
   if (config.telegram?.enabled === true) {
     const token = process.env[config.telegram.tokenEnv || 'TELEGRAM_BOT_TOKEN'];
     if (!token) throw new Error(`Missing Telegram token env: ${config.telegram.tokenEnv || 'TELEGRAM_BOT_TOKEN'}`);
+    // Polling failures and polling stalls both end the process here so the
+    // supervisor restarts a runtime that can no longer receive messages.
+    const failTelegram = (error) => {
+      healthReporter?.fatal(error);
+      reportFailure('telegram', error);
+      releaseResources();
+      process.exit(1);
+    };
     const telegram = createTelegramChannel({
       api: createTelegramApi({ token, apiBase: config.telegram.apiBase }),
       ownerIds: config.owner.telegramUserIds || [],
@@ -199,8 +230,13 @@ async function main() {
       groupAllowedReactions: config.telegram.groupAllowedReactions,
       groupRepairAttempts: config.telegram.groupRepairAttempts,
       offsetStore: createFileOffsetStore(path.join(config.storage.root, 'telegram-offset.txt')),
+      vision: resolveTelegramVision(config.telegram.vision),
       pollTimeoutSeconds: config.telegram.pollTimeoutSeconds,
       pollRetryDelayMs: config.telegram.pollRetryDelayMs,
+      pollMaxConsecutiveFailures: config.telegram.pollMaxConsecutiveFailures,
+      pollFailureGiveUpMs: config.telegram.pollFailureGiveUpMs,
+      pollStallTimeoutMs: config.telegram.pollStallTimeoutMs,
+      onPollFatal: failTelegram,
     });
     telegramChannel = telegram;
     runtime.attach(telegram);
@@ -241,12 +277,7 @@ async function main() {
     }));
     await dispatcher.replayAll();
     dispatcher.start();
-    telegram.start().catch((error) => {
-      healthReporter?.fatal(error);
-      reportFailure('telegram', error);
-      releaseResources();
-      process.exit(1);
-    });
+    telegram.start().catch(failTelegram);
   }
   terminalInterface = terminal.start();
   healthReporter.ready({ sessionId: sessionState.sessionId });

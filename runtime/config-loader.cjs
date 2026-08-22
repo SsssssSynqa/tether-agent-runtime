@@ -112,12 +112,53 @@ function validateConfig(config) {
     'maxQuotedChars',
     'groupMaxReplies',
     'groupMaxPendingMessages',
+    'pollMaxConsecutiveFailures',
+    'pollFailureGiveUpMs',
+    'pollStallTimeoutMs',
   ]) {
     if (
       config.telegram?.[field] != null
       && (!Number.isFinite(Number(config.telegram[field])) || Number(config.telegram[field]) <= 0)
     ) {
       errors.push(`telegram.${field} must be a positive number`);
+    }
+  }
+  // telegram.vision: an image transcriber for backends without image input. Its
+  // credential follows the same rule as provider credentials — env only, never
+  // inline — so a config file stays safe to share.
+  const vision = config.telegram?.vision;
+  if (vision != null) {
+    if (!isObject(vision)) {
+      errors.push('telegram.vision must be an object');
+    } else if (vision.enabled !== false) {
+      if (vision.apiKey != null) errors.push('telegram.vision.apiKey is forbidden; use apiKeyEnv');
+      for (const field of ['model', 'baseUrl', 'apiKeyEnv']) {
+        if (!String(vision[field] || '').trim()) {
+          errors.push(`telegram.vision.${field} is required unless telegram.vision.enabled is false`);
+        }
+      }
+      if (String(vision.baseUrl || '').trim()) {
+        try {
+          const parsed = new URL(vision.baseUrl);
+          if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported protocol');
+          if (parsed.protocol === 'http:' && !isLoopbackHostname(parsed.hostname)) {
+            errors.push('telegram.vision.baseUrl must use https unless the host is loopback');
+          }
+          if (parsed.username || parsed.password || urlCredentialQueryKeys(parsed).length) {
+            errors.push('telegram.vision.baseUrl must not contain credentials');
+          }
+        } catch (_) {
+          errors.push('telegram.vision.baseUrl must use http or https');
+        }
+      }
+      for (const field of ['timeoutMs', 'maxImages', 'maxTokens']) {
+        if (
+          vision[field] != null
+          && (!Number.isFinite(Number(vision[field])) || Number(vision[field]) <= 0)
+        ) {
+          errors.push(`telegram.vision.${field} must be a positive number`);
+        }
+      }
     }
   }
   const supervision = config.supervision || {};
