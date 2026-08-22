@@ -114,8 +114,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "1b012ede019a27935caff27044e8a6487a1b6f1cf39d41c4a80b33e167ce14fb",
-      "size": 29962
+      "sha256": "40a786fd8df5d00bacdd528fd8e00d0346a1bc8642832e58996a2e0e1e203ee8",
+      "size": 30072
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",
@@ -284,8 +284,8 @@
     },
     {
       "path": "runtime/operations/supervisor.cjs",
-      "sha256": "9a202dd55c067c8e7a68db66f50ff0b56d12bbf4487d9b135973ffb901a8b2bc",
-      "size": 10530
+      "sha256": "1b7cdd88603fb61d668812596f96d974b7451ea41efdd71bf107d57d5ecd29f1",
+      "size": 11468
     },
     {
       "path": "runtime/providers/openai-compatible.cjs",
@@ -374,8 +374,8 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "5803f765184d2828e189c84106b627e33733a5662c31daf5f2c5a3c833b77561",
-      "size": 163170
+      "sha256": "1df0f8e700af7da70abb034f7ad1ce63cdd2f662bab758debd10b26d62b9227d",
+      "size": 164246
     },
     {
       "path": "test/provider-circuit.cjs",

@@ -72,6 +72,7 @@ class TetherSupervisor {
     this.settings = {
       monitorIntervalMs: Number(settings.monitorIntervalMs || 5_000),
       heartbeatStaleMs: Number(settings.heartbeatStaleMs || 30_000),
+      heartbeatStaleConfirmMs: Math.max(0, Number(settings.heartbeatStaleConfirmMs) || 0),
       readyTimeoutMs: Number(settings.readyTimeoutMs || 60_000),
       restartBaseMs: Number(settings.restartBaseMs || 1_000),
       restartMaxMs: Number(settings.restartMaxMs || 60_000),
@@ -104,6 +105,8 @@ class TetherSupervisor {
     this.spawnedAt = 0;
     this.lastMonitorAt = 0;
     this.resumeGraceUntil = 0;
+    this.staleObservedAt = 0;
+    this.staleRunId = null;
     this.restartAttempt = 0;
     this.stopping = false;
     this.terminatingChild = false;
@@ -217,6 +220,7 @@ class TetherSupervisor {
     if (monitorGap > this.suspendGapMs) {
       const suspendedFor = Math.max(0, monitorGap - this.settings.monitorIntervalMs);
       this.spawnedAt += suspendedFor;
+      if (this.staleObservedAt) this.staleObservedAt += suspendedFor;
       this.resumeGraceUntil = now + this.resumeGraceMs;
       this.log(
         `[tether-supervisor] health monitor rebased after ${Math.round(monitorGap / 1000)}s `
@@ -232,7 +236,27 @@ class TetherSupervisor {
       readyTimeoutMs: this.settings.readyTimeoutMs,
       staleAfterMs: this.settings.heartbeatStaleMs,
     });
-    if (decision.action === 'restart') this._terminateChild(decision.reason);
+    if (decision.action !== 'restart') {
+      this.staleObservedAt = 0;
+      this.staleRunId = null;
+      return;
+    }
+    if (
+      decision.reason === 'heartbeat-stale'
+      && this.settings.heartbeatStaleConfirmMs > 0
+    ) {
+      if (!this.staleObservedAt || this.staleRunId !== this.runId) {
+        this.staleObservedAt = now;
+        this.staleRunId = this.runId;
+        this.log(
+          `[tether-supervisor] heartbeat stale; waiting ${Math.round(this.settings.heartbeatStaleConfirmMs / 1000)}s `
+          + 'for event-loop recovery before restart',
+        );
+        return;
+      }
+      if (now - this.staleObservedAt < this.settings.heartbeatStaleConfirmMs) return;
+    }
+    this._terminateChild(decision.reason);
   }
 
   _spawnChild() {
@@ -241,6 +265,8 @@ class TetherSupervisor {
     this.spawnedAt = this.clock();
     this.lastMonitorAt = this.spawnedAt;
     this.resumeGraceUntil = 0;
+    this.staleObservedAt = 0;
+    this.staleRunId = null;
     this.terminatingChild = false;
     const child = this.spawnImpl(process.execPath, [this.runtimeEntrypoint, this.configPath], {
       stdio: 'inherit',

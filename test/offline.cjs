@@ -3472,6 +3472,7 @@ async function main() {
       settings: {
         monitorIntervalMs: 5_000,
         heartbeatStaleMs: 30_000,
+        heartbeatStaleConfirmMs: 60_000,
         readyTimeoutMs: 60_000,
         shutdownGraceMs: 15_000,
       },
@@ -3518,6 +3519,24 @@ async function main() {
     supervisorNow += tetherSupervisor.resumeGraceMs;
     supervisorMonitor();
     assert.deepEqual(childSignals, [], 'fresh post-wake heartbeat must retain the same runtime');
+    for (let index = 0; index < 7; index += 1) {
+      supervisorNow += 5_000;
+      supervisorMonitor();
+    }
+    assert.deepEqual(childSignals, [], 'a runtime-only event-loop stall enters confirmation before restart');
+    assert.match(supervisorLogs.at(-1), /waiting 60s for event-loop recovery/);
+    const recoveredHealth = JSON.parse(fs.readFileSync(path.join(supervisorRoot, 'runtime-health.json'), 'utf8'));
+    recoveredHealth.updatedAt = new Date(supervisorNow).toISOString();
+    fs.writeFileSync(path.join(supervisorRoot, 'runtime-health.json'), JSON.stringify(recoveredHealth));
+    supervisorNow += 5_000;
+    supervisorMonitor();
+    assert.deepEqual(childSignals, [], 'a fresh heartbeat inside confirmation keeps the same runtime');
+    for (let index = 0; index < 19; index += 1) {
+      supervisorNow += 5_000;
+      supervisorMonitor();
+    }
+    assert.deepEqual(childSignals, ['SIGTERM'], 'a persistent runtime stall still restarts after confirmation');
+    await new Promise((resolve) => setImmediate(resolve));
     tetherSupervisor.stop('SIGTERM');
     await supervisorCompletion;
     assert.deepEqual(childSignals, ['SIGTERM']);
