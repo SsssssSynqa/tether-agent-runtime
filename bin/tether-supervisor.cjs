@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 'use strict';
 
+const { installLogTimestamps } = require('../runtime/bridge/log-stamp.js');
 const { loadTetherConfig } = require('../runtime/config-loader.cjs');
 const { TetherSupervisor } = require('../runtime/operations/supervisor.cjs');
+
+if (require.main === module) installLogTimestamps();
 
 async function main(argv = process.argv.slice(2)) {
   const configPath = argv[0] || './config.json';

@@ -474,6 +474,35 @@ function createFileOffsetStore(filePath) {
   };
 }
 
+// First-run backlog drop — ported from the source bridge (2026-08-22). On a
+// green-field deployment the bot may have been sitting in chats for days; with
+// no stored offset, the first getUpdates hands over every retained update and
+// the agent answers stale messages as if they just arrived. Drain and discard
+// instead: nothing is enqueued, nothing is answered, the offset lands past the
+// backlog. Callers gate this on "no offset file exists" so an established
+// deployment never loses its downtime backlog.
+async function dropTelegramBacklog({ api, offsetStore, log = console.log } = {}) {
+  if (!api?.call) throw new Error('Backlog drop requires an API client');
+  if (!offsetStore?.write) throw new Error('Backlog drop requires an offset store');
+  let offset = 0;
+  let dropped = 0;
+  for (;;) {
+    const payload = await api.call('getUpdates', {
+      offset,
+      timeout: 0,
+      limit: 100,
+      allowed_updates: ['message', 'edited_message'],
+    });
+    const updates = payload.result || [];
+    if (!updates.length) break;
+    for (const update of updates) offset = Math.max(offset, Number(update.update_id) + 1);
+    dropped += updates.length;
+  }
+  if (offset > 0) offsetStore.write(offset);
+  log(`[tether] first-run backlog drop complete: discarded ${dropped} updates, offset=${offset}`);
+  return { dropped, offset };
+}
+
 // Owner notifications — ported from the Syner production bridge (2026-08-22).
 // The source bridge tells its owner about dead-letters, failed group batches,
 // and fatal states over Telegram itself; Tether's first release demoted all of
@@ -566,6 +595,7 @@ function createTelegramChannel({
   groupOwnerMessagesPerMinute = 60,
   groupBotMessagesPerMinute = 12,
   groupUserMessagesPerMinute = 30,
+  outboundSecrets = [],
   log = console.log,
 } = {}) {
   if (!api?.call || !api?.sendMessage) throw new Error('Telegram channel requires an API client');
@@ -704,8 +734,23 @@ function createTelegramChannel({
     stallTimer.unref?.();
   }
 
+  // Outbound secret veil — the minimal port of the source bridge's outbound
+  // redaction layer (2026-08-22). The framework cannot know an operator's
+  // private redaction rules, but it does know its own credentials; a model that
+  // quotes config or environment content must never leak a live token into a
+  // chat. Values shorter than 8 characters are skipped to avoid mangling prose.
+  const secretVeil = (outboundSecrets || [])
+    .map((value) => String(value || ''))
+    .filter((value) => value.length >= 8);
+
+  function redactOutboundSecrets(text) {
+    let out = String(text || '');
+    for (const secret of secretVeil) out = out.split(secret).join('[redacted]');
+    return out;
+  }
+
   async function sendText(chatId, text, replyToMessageId, progress) {
-    const chunks = splitTelegramText(text);
+    const chunks = splitTelegramText(redactOutboundSecrets(text));
     const results = [];
     for (let index = 0; index < chunks.length; index += 1) {
       const params = { chat_id: chatId, text: chunks[index] };
@@ -1136,6 +1181,7 @@ module.exports = {
   createTelegramApi,
   createTelegramChannel,
   createDurableUpdateHandler,
+  dropTelegramBacklog,
   attachmentReferences,
   groupShouldRespond,
   isTelegramGroupUpdate,

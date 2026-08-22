@@ -86,6 +86,7 @@ const {
   createOwnerNotifier,
   createTelegramApi,
   createTelegramChannel,
+  dropTelegramBacklog,
   normalizeTelegramUpdate,
   splitTelegramText,
   telegramRequestTimeoutMs,
@@ -1618,6 +1619,56 @@ async function main() {
       assert.equal((await limitChannel.prepareUpdate(groupUpdate(76, 90, { bot: true }))).respond, false);
       assert.equal((await limitChannel.prepareUpdate(groupUpdate(77, 11))).respond, true);
       assert.equal((await limitChannel.prepareUpdate(groupUpdate(78, 90, { bot: true }))).respond, true);
+    }
+
+    // First-run backlog drop (ported 2026-08-22): drain to empty, discard all,
+    // land the offset past the backlog.
+    {
+      const dropRoot = path.join(root, 'backlog-drop');
+      const pages = [
+        [{ update_id: 40 }, { update_id: 41 }],
+        [{ update_id: 42 }],
+        [],
+      ];
+      const dropOffsetStore = createFileOffsetStore(path.join(dropRoot, 'offset.txt'));
+      const requestedOffsets = [];
+      const result = await dropTelegramBacklog({
+        api: {
+          async call(method, params) {
+            assert.equal(method, 'getUpdates');
+            requestedOffsets.push(params.offset);
+            return { ok: true, result: pages.shift() };
+          },
+        },
+        offsetStore: dropOffsetStore,
+        log: () => {},
+      });
+      assert.deepEqual(result, { dropped: 3, offset: 43 });
+      assert.deepEqual(requestedOffsets, [0, 42, 43]);
+      assert.equal(dropOffsetStore.read(), 43);
+    }
+
+    // Outbound secret veil (ported 2026-08-22): configured credentials never
+    // leave the process in message text; short values are left alone.
+    {
+      const veilRoot = path.join(root, 'secret-veil');
+      const veilSends = [];
+      const veilChannel = createTelegramChannel({
+        api: {
+          async call() { return { ok: true, result: [] }; },
+          async sendMessage(params) { veilSends.push(params); return { ok: true, result: { message_id: 1 } }; },
+        },
+        ownerIds: ['11'],
+        offsetStore: createFileOffsetStore(path.join(veilRoot, 'offset.txt')),
+        outboundSecrets: ['super-secret-token-value', 'short'],
+        log: () => {},
+      });
+      await veilChannel.send({
+        text: 'the key is super-secret-token-value and short stays',
+        sourceMessage: { metadata: { chatId: '11' } },
+      });
+      assert.equal(veilSends.length, 1);
+      assert.equal(veilSends[0].text, 'the key is [redacted] and short stays');
     }
 
     // Typing heartbeat (ported 2026-08-22): fires while a responding turn is in

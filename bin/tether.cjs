@@ -5,7 +5,10 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { installLogTimestamps } = require('../runtime/bridge/log-stamp.js');
 const { loadTetherConfig } = require('../runtime/config-loader.cjs');
+
+if (require.main === module) installLogTimestamps();
 const { LayeredMemory } = require('../runtime/memory/layered-memory.cjs');
 const {
   createExternalRecallAdapter,
@@ -23,6 +26,7 @@ const {
   createOwnerNotifier,
   createTelegramApi,
   createTelegramChannel,
+  dropTelegramBacklog,
 } = require('../runtime/channels/telegram.cjs');
 const {
   createTelegramGroupCoordinator,
@@ -215,6 +219,9 @@ async function main() {
       process.exit(1);
     };
     const telegramApi = createTelegramApi({ token, apiBase: config.telegram.apiBase });
+    const telegramOffsetPath = path.join(config.storage.root, 'telegram-offset.txt');
+    const telegramOffsetStore = createFileOffsetStore(telegramOffsetPath);
+    const visionConfig = resolveTelegramVision(config.telegram.vision);
     const telegram = createTelegramChannel({
       api: telegramApi,
       ownerIds: config.owner.telegramUserIds || [],
@@ -231,8 +238,13 @@ async function main() {
       groupMaxReplies: config.telegram.groupMaxReplies,
       groupAllowedReactions: config.telegram.groupAllowedReactions,
       groupRepairAttempts: config.telegram.groupRepairAttempts,
-      offsetStore: createFileOffsetStore(path.join(config.storage.root, 'telegram-offset.txt')),
-      vision: resolveTelegramVision(config.telegram.vision),
+      offsetStore: telegramOffsetStore,
+      vision: visionConfig,
+      outboundSecrets: [
+        token,
+        visionConfig?.apiKey,
+        ...providers.map((provider) => provider.apiKey),
+      ].filter(Boolean),
       pollTimeoutSeconds: config.telegram.pollTimeoutSeconds,
       pollRetryDelayMs: config.telegram.pollRetryDelayMs,
       pollMaxConsecutiveFailures: config.telegram.pollMaxConsecutiveFailures,
@@ -251,6 +263,17 @@ async function main() {
       api: telegramApi,
       ownerIds: config.owner.telegramUserIds || [],
     });
+    // Green-field only: an existing offset file means an established deployment,
+    // whose downtime backlog must replay rather than vanish.
+    if (config.telegram.dropBacklogOnFirstRun !== false && !fs.existsSync(telegramOffsetPath)) {
+      const { dropped } = await dropTelegramBacklog({ api: telegramApi, offsetStore: telegramOffsetStore });
+      if (dropped > 0) {
+        await notifyOwner(
+          `[bridge-status] First run: ${dropped} backlogged Telegram updates were discarded; `
+          + 'messages from now on are handled normally.',
+        );
+      }
+    }
     const durableInbox = new DurableInbox({
       filePath: path.join(config.storage.root, 'telegram-inbox.jsonl'),
       maxBytes: config.telegram.durableInboxMaxBytes,
@@ -309,6 +332,12 @@ async function main() {
   }
   terminalInterface = terminal.start();
   healthReporter.ready({ sessionId: sessionState.sessionId });
+  const groupCount = Object.keys(config.telegram?.allowedGroups || {}).length;
+  console.log(
+    `[tether] runtime ready | agent=${config.agent.id} | telegram=${config.telegram?.enabled === true ? `on (${groupCount} groups)` : 'off'}`
+    + ` | providers=${providers.map((provider) => provider.id).join(',') || 'none'}`
+    + ` | storage=${config.storage.root}`,
+  );
 }
 
 main().catch((error) => {

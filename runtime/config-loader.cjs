@@ -268,6 +268,12 @@ function validateConfig(config) {
     errors.push('telegram.startupNotice must be boolean');
   }
   if (
+    config.telegram?.dropBacklogOnFirstRun != null
+    && typeof config.telegram.dropBacklogOnFirstRun !== 'boolean'
+  ) {
+    errors.push('telegram.dropBacklogOnFirstRun must be boolean');
+  }
+  if (
     config.telegram?.turnFailureNotice != null
     && config.telegram.turnFailureNotice !== false
     && typeof config.telegram.turnFailureNotice !== 'string'

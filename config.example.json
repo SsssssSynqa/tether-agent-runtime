@@ -164,7 +164,8 @@
     "groupBotMessagesPerMinute": 12,
     "groupUserMessagesPerMinute": 30,
     "startupNotice": false,
-    "turnFailureNotice": "[bridge-status] That turn hit an error; it stays queued and retries automatically."
+    "turnFailureNotice": "[bridge-status] That turn hit an error; it stays queued and retries automatically.",
+    "dropBacklogOnFirstRun": true
   },
   "providers": [
     {
