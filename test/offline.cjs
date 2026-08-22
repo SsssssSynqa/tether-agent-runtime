@@ -1621,6 +1621,66 @@ async function main() {
       assert.equal((await limitChannel.prepareUpdate(groupUpdate(78, 90, { bot: true }))).respond, true);
     }
 
+    // Group ordering under failure (2026-08-22 reconciliation): the source
+    // bridge blocks follow-up batches behind an unrecovered one inside
+    // generateGroupReplies (GROUP_ORDER_BLOCKED); Tether blocks earlier, at
+    // ingress, via hasEarlierBlockedEntry. Verify the equivalence: after a
+    // failed batch, a later update in the same chat defers instead of racing
+    // ahead out of order.
+    {
+      const orderRoot = path.join(root, 'group-order-blocked');
+      const orderInbox = new DurableInbox({
+        filePath: path.join(orderRoot, 'inbox.jsonl'),
+        log: () => {},
+      });
+      const orderChannel = createTelegramChannel({
+        api: {
+          async call() { return { ok: true, result: [] }; },
+          async sendMessage() { return { ok: true, result: { message_id: 1 } }; },
+        },
+        ownerIds: ['11'],
+        allowedGroups: { 77: { mode: 'all' } },
+        offsetStore: createFileOffsetStore(path.join(orderRoot, 'offset.txt')),
+        typingHeartbeatMs: 0,
+        log: () => {},
+      });
+      orderChannel.onMessage(async (message) => {
+        if (message.respond === false) return { observed: true };
+        throw new Error('provider unavailable');
+      });
+      const orderCoordinator = createTelegramGroupCoordinator({
+        channel: orderChannel,
+        inbox: orderInbox,
+        timing: {
+          singleMessageMs: 1,
+          sameSenderIdleMs: 1,
+          sameSenderMaxMs: 2,
+          multiSenderIdleMs: 1,
+          multiSenderMaxMs: 2,
+        },
+        log: () => {},
+      });
+      const orderUpdate = (updateId, text) => ({
+        update_id: updateId,
+        message: {
+          message_id: updateId,
+          text,
+          from: { id: 55 },
+          chat: { id: 77, type: 'group' },
+        },
+      });
+      assert.equal(orderInbox.receive(orderUpdate(90, 'first')), true);
+      await assert.rejects(
+        () => orderCoordinator.ingestUpdate(orderUpdate(90, 'first')),
+        /provider unavailable/,
+      );
+      assert.equal(orderInbox.getState(90).state, 'failed');
+      assert.equal(orderInbox.receive(orderUpdate(91, 'second')), true);
+      const deferredResult = await orderCoordinator.ingestUpdate(orderUpdate(91, 'second'));
+      assert.deepEqual(deferredResult, { deferred: true, reason: 'earlier-update-blocked' });
+      assert.equal(orderInbox.getState(91).state, 'received');
+    }
+
     // First-run backlog drop (ported 2026-08-22): drain to empty, discard all,
     // land the offset past the backlog.
     {
