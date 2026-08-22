@@ -104,7 +104,7 @@ function createTelegramApi({ token, apiBase = 'https://api.telegram.org', fetchI
     throw new Error('Telegram apiBase must not contain credentials, query parameters, or fragments');
   }
   const normalizedBase = parsedBase.href.replace(/\/$/, '');
-  const call = async (method, params = {}) => {
+  const callOnce = async (method, params = {}) => {
     let response;
     const controller = new AbortController();
     const timer = setTimeout(
@@ -125,13 +125,53 @@ function createTelegramApi({ token, apiBase = 'https://api.telegram.org', fetchI
         signal: controller.signal,
       });
       payload = await response.json();
-    } catch (error) {
-      throw markAmbiguousDelivery(error, method);
     } finally {
       clearTimeout(timer);
     }
-    if (!response.ok || !payload.ok) throw new Error(payload.description || `Telegram HTTP ${response.status}`);
+    if (!response.ok || !payload.ok) {
+      const error = new Error(payload.description || `Telegram HTTP ${response.status}`);
+      error.status = response.status;
+      const retryAfter = Number(payload?.parameters?.retry_after);
+      if (Number.isFinite(retryAfter) && retryAfter > 0) error.retryAfter = retryAfter;
+      throw error;
+    }
     return payload;
+  };
+
+  // 传输层重试——从 Syner 生产桥的 tgWithRetry 移植（2026-08-22）。
+  // Tether 首发时把这层丢了：发送碰到一次网络抖动就整轮失败，durable 层的
+  // "恢复"是整轮重新生成，比偶尔重复一条消息贵得多（8/15 Skald 实证）。
+  // 矩阵与源头一致：429 尊重 retry_after、5xx 与网络类错误指数退避、
+  // 其余 4xx 是真实回答立刻冒上去。getUpdates 不走这层——poll 循环
+  // 自带重试与 stall 检测，双层退避会拖长卡死判定。
+  // 重试耗尽后才打投递歧义标记，manualRetryOnly 的最终语义不变。
+  const RETRYABLE_NET_RE = /fetch failed|timeout|aborted|ECONNRESET|EPIPE/i;
+  const call = async (method, params = {}) => {
+    const maxAttempts = method === 'getUpdates' ? 1 : 4;
+    let lastError;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await callOnce(method, params);
+      } catch (error) {
+        lastError = error;
+        const retryable = error.retryAfter > 0
+          || error.status === 429
+          || error.status >= 500
+          || (error.status === undefined && RETRYABLE_NET_RE.test(String(error.message || '')));
+        if (!retryable || attempt === maxAttempts) break;
+        const waitMs = error.retryAfter > 0
+          ? Math.min(error.retryAfter * 1000, 60_000)
+          : Math.min(500 * (2 ** (attempt - 1)), 5_000);
+        console.error(`[tether] telegram ${method} attempt ${attempt}/${maxAttempts} failed, retrying in ${waitMs}ms: ${error.message}`);
+        // 普通 setTimeout,不 unref:unref 的定时器在 event loop 清空时不吊进程,
+        // 这个 await 会永远悬挂(离线测试当场复现)。与源头 tgWithRetry 的 sleep 一致。
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
+    // 歧义标记只属于网络层失败（status 缺失 = 不知道请求到没到）。
+    // API 有明确回复（4xx/5xx）时投递状态是确定的，保持原实现的语义原样抛。
+    if (lastError && lastError.status !== undefined) throw lastError;
+    throw markAmbiguousDelivery(lastError, method);
   };
   return {
     call,
