@@ -26,6 +26,7 @@ This release closes the gap between Tether's durable core and the operational be
 
 - Added `tether-ops circuit-status` and offline `tether-ops circuit-clear`.
 - Added provider-circuit regression coverage and refreshed the exact-byte public export lock.
+- Documented a mechanism-by-mechanism public-extraction audit, with owner notifications treated as a first-class operational path.
 
 ## [0.1.0] - 2026-08-03
 

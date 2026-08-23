@@ -170,3 +170,16 @@ Every persistence or recovery change should prove at least these synthetic count
 - stale heartbeat and supervisor crash-loop exhaustion.
 
 A safe result may be delayed or blocked. It must not be silent amnesia, duplicate inference, rewritten evidence, duplicated side effects, or a replacement identity.
+
+## 10. Public extraction is a mechanism audit
+
+A sanitized or public runtime is not complete merely because shared library files match their source byte-for-byte. The orchestration layer often owns behavior that is easy to lose during extraction: owner notifications, private-turn failure notices, delivery retry, typing heartbeats, rate limits, startup backlog policy, credential redaction, diagnostics, and supervisor recovery windows.
+
+Review an extraction by mechanism and failure path, not only by directory diff:
+
+1. inventory every production capability and identify its actual owner (shared module, entrypoint, adapter, wrapper, or service configuration);
+2. map each capability to an exported implementation or an explicit documented exclusion;
+3. exercise the counterfactual where that capability is needed, especially provider failure and Telegram delivery failure;
+4. verify the exact-byte allowlist and public lock only after behavioral parity is established.
+
+Notifications deserve their own checklist. A runtime may preserve data perfectly and still become operationally silent if the owner-visible path disappears. Export checks therefore treat the notification path as a first-class mechanism, not incidental log text.
