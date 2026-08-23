@@ -42,16 +42,18 @@ The current tree is the complete reference runtime for the scope below—not a b
 |---|---|
 | Identity | One fail-closed session anchor; a missing or unprovable anchor never becomes a silent fresh persona |
 | Channels | Terminal plus live Telegram private chat, allowlisted groups, mention/all modes, batching, replies, reactions, images, and file previews |
-| Delivery | Durable ingress, stable causal IDs, ordered replay, exact committed-output redelivery, retry/backoff, operator pause, and dead-letter inventory |
+| Delivery | Durable ingress, stable causal IDs, ordered replay, exact committed-output redelivery, transient Telegram send retry/backoff, operator pause, and dead-letter inventory |
 | Active memory | Append-only raw transcript, token-driven automatic folding, bounded active context, archived summaries, and loss-preserving fallback |
 | Long-term memory | Automatic day cards and week cards with configurable operational-day policy and source coverage |
 | Semantic memory | Model extraction and verification for claims, events, projections, evidence, reviews, and high-risk paths; `off`, `shadow`, `cards`, and `full` modes |
 | Retrieval | Optional embeddings, resumable vector backfill, bounded semantic recall, and graceful fallback to layered cards |
 | Tools | Provider tool-call loop with bounded local `list_workspace_directory`, `read_workspace_file`, and atomic `write_workspace_file`; per-channel allow/approval/deny policy |
-| Operations | Heartbeats, readiness, supervised restart with jitter and crash-loop budget, storage versioning, migration, backup/verification/restore, and dead-letter CLI |
+| Operations | Timestamped diagnostics, owner notices, typing heartbeat, readiness, supervised restart with stale-heartbeat confirmation and crash-loop budget, configurable persistent provider circuit, storage versioning, migration, backup/verification/restore, and dead-letter/circuit CLI |
 | Console | A bilingual read-only web frontend and local API with layered month calendars, cards, folds, semantic records, queues, vectors, provenance, integrity, and compiled-context manifests |
 
 Any API that implements the documented OpenAI-compatible Chat Completions/Embeddings subset can be configured directly. Other APIs can be connected through the provider adapter boundary without changing the session or memory model.
+
+See [CHANGELOG.md](CHANGELOG.md) for release-by-release operational changes.
 
 ## How the memory works
 
