@@ -144,7 +144,7 @@ For foreground development without automatic restart:
 node bin/tether.cjs ./config.json
 ```
 
-Enable Telegram in the same `config.json`, set `owner.telegramUserIds`, keep groups explicitly allowlisted, and export the token named by `telegram.tokenEnv`. Do **not** start a second runtime for Telegram.
+Enable Telegram in the same `config.json`, set `owner.telegramUserIds`, keep groups explicitly allowlisted, and export the token named by `telegram.tokenEnv`. Setting `telegram.gateCommandPrefix` additionally gives the owner four in-group commands—`/<prefix>_on|off|all|quiet`—for persistent dynamic authorization and mention/all switching without editing the static allowlist. Non-owners cannot open a group. Do **not** start a second runtime for Telegram.
 
 Read [Getting started](docs/GETTING_STARTED.md) before connecting real data. Existing unversioned data roots require the explicit offline migration in [Operations and recovery](docs/OPERATIONS.md).
 

@@ -74,6 +74,30 @@ function validateConfig(config) {
   if (config.telegram?.allowedGroups != null && !isObject(config.telegram.allowedGroups)) {
     errors.push('telegram.allowedGroups must be an object');
   }
+  if (
+    config.telegram?.gateCommandPrefix != null
+    && !/^[A-Za-z0-9_]+$/.test(String(config.telegram.gateCommandPrefix))
+  ) {
+    errors.push('telegram.gateCommandPrefix must contain only letters, numbers, or underscores');
+  }
+  if (
+    config.telegram?.dynamicGroupsPath != null
+    && !String(config.telegram.dynamicGroupsPath).trim()
+  ) {
+    errors.push('telegram.dynamicGroupsPath must be a non-empty path');
+  }
+  if (
+    config.telegram?.registerGateCommandMenu != null
+    && typeof config.telegram.registerGateCommandMenu !== 'boolean'
+  ) {
+    errors.push('telegram.registerGateCommandMenu must be boolean');
+  }
+  if (
+    config.telegram?.dynamicGroupDefaults != null
+    && !isObject(config.telegram.dynamicGroupDefaults)
+  ) {
+    errors.push('telegram.dynamicGroupDefaults must be an object');
+  }
   for (const [chatId, policy] of Object.entries(config.telegram?.allowedGroups || {})) {
     if (!chatId || !isObject(policy)) {
       errors.push(`telegram.allowedGroups.${chatId || '<empty>'} must be an object`);
@@ -699,6 +723,12 @@ function loadTetherConfig(configPath, {
     config.telegram.attachmentDirectory = resolveWithin(
       baseDirectory,
       config.telegram.attachmentDirectory,
+    );
+  }
+  if (config.telegram?.dynamicGroupsPath) {
+    config.telegram.dynamicGroupsPath = resolveWithin(
+      baseDirectory,
+      config.telegram.dynamicGroupsPath,
     );
   }
   if (Array.isArray(config.tools?.workspaceRoots)) {

@@ -24,7 +24,7 @@
     "ops:status": "node ./bin/tether-ops.cjs status ./config.json",
     "ops:dead-letters": "node ./bin/tether-ops.cjs dead-letters ./config.json",
     "supervise": "node ./bin/tether-supervisor.cjs ./config.json",
-    "test": "node ./test/provider-circuit.cjs && node ./test/external-recall.cjs && node ./test/offline.cjs && node ./test/layered-runtime.cjs",
+    "test": "node ./test/provider-circuit.cjs && node ./test/telegram-gate.cjs && node ./test/external-recall.cjs && node ./test/offline.cjs && node ./test/layered-runtime.cjs",
     "verify:export": "node ./scripts/verify-export-lock.cjs"
   }
 }

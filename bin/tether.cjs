@@ -239,6 +239,12 @@ async function main() {
       api: telegramApi,
       ownerIds: config.owner.telegramUserIds || [],
       allowedGroups: config.telegram.allowedGroups || {},
+      gateCommandPrefix: config.telegram.gateCommandPrefix || null,
+      gateCommandDisplayName: config.agent.displayName,
+      dynamicGroupsPath: config.telegram.dynamicGroupsPath
+        || path.join(config.storage.root, 'telegram-dynamic-groups.json'),
+      dynamicGroupDefaults: config.telegram.dynamicGroupDefaults || null,
+      registerGateCommandMenu: config.telegram.registerGateCommandMenu !== false,
       noReplyGroupIds: config.telegram.noReplyGroupIds || [],
       rateLimitedGroupIds: config.telegram.rateLimitedGroupIds || [],
       rateLimitStateDir: config.telegram.rateLimitStateDir || null,

@@ -85,6 +85,10 @@
       "target": "runtime/channels/telegram.cjs"
     },
     {
+      "source": "runtime/channels/telegram-gate.cjs",
+      "target": "runtime/channels/telegram-gate.cjs"
+    },
+    {
       "source": "runtime/channels/telegram-group.cjs",
       "target": "runtime/channels/telegram-group.cjs"
     },
@@ -304,6 +308,10 @@
     {
       "source": "test/provider-circuit.cjs",
       "target": "test/provider-circuit.cjs"
+    },
+    {
+      "source": "test/telegram-gate.cjs",
+      "target": "test/telegram-gate.cjs"
     },
     {
       "source": "test/external-recall.cjs",

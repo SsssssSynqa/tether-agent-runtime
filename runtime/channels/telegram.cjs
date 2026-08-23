@@ -18,6 +18,11 @@ const {
 } = require('./telegram-group.cjs');
 const { isLoopbackHostname } = require('../config-loader.cjs');
 const { createPollWatchdog } = require('../bridge/poll-watchdog.js');
+const {
+  ensureGroupGateCommandMenu,
+  handleTelegramGateCommand,
+  readDynamicGroups,
+} = require('./telegram-gate.cjs');
 
 const DEFAULT_POLL_RETRY_DELAY_MS = 1000;
 const DEFAULT_TELEGRAM_TIMEOUT_MS = 40_000;
@@ -542,6 +547,7 @@ function createDurableUpdateHandler({
     throw new Error('Durable Telegram ingress requires a dispatcher');
   }
   return async (update) => {
+    if (await channel.handleControlUpdate?.(update)) return { control: true };
     if (!channel.normalizeUpdate(update)) return { ignored: true };
     const updateId = Number(update.update_id);
     const prior = inbox.getState(updateId);
@@ -572,6 +578,11 @@ function createTelegramChannel({
   ownerIds = [],
   allowedGroupIds = [],
   allowedGroups = null,
+  gateCommandPrefix = null,
+  gateCommandDisplayName = null,
+  dynamicGroupsPath = null,
+  dynamicGroupDefaults = null,
+  registerGateCommandMenu = true,
   noReplyGroupIds = [],
   rateLimitedGroupIds = [],
   rateLimitStateDir = null,
@@ -607,13 +618,25 @@ function createTelegramChannel({
   let botIdentity = { id: null, username: null };
   let stallTimer = null;
   let lastPollProgressAt = 0;
-  const groupPolicies = allowedGroups && typeof allowedGroups === 'object'
+  const staticGroupPolicies = allowedGroups && typeof allowedGroups === 'object'
     ? new Map(Object.entries(allowedGroups).map(([chatId, policy]) => [
         String(chatId),
         policy && typeof policy === 'object' ? { ...policy } : {},
       ]))
     : new Map(allowedGroupIds.map((chatId) => [String(chatId), {}]));
-  const effectiveAllowedGroupIds = [...groupPolicies.keys()];
+  const groupPolicies = new Map(staticGroupPolicies);
+  const dynamicPath = dynamicGroupsPath ? path.resolve(dynamicGroupsPath) : null;
+  const replaceDynamicPolicies = (groups) => {
+    for (const chatId of [...groupPolicies.keys()]) {
+      if (!staticGroupPolicies.has(chatId)) groupPolicies.delete(chatId);
+    }
+    for (const [chatId, policy] of Object.entries(groups || {})) {
+      if (!staticGroupPolicies.has(String(chatId))) {
+        groupPolicies.set(String(chatId), policy && typeof policy === 'object' ? { ...policy } : {});
+      }
+    }
+  };
+  if (gateCommandPrefix && dynamicPath) replaceDynamicPolicies(readDynamicGroups(dynamicPath));
   const attachmentRoot = path.resolve(attachmentDirectory || path.join(process.cwd(), '.tether-attachments'));
   const imageCacheDir = path.join(attachmentRoot, 'images');
   const fileCacheDir = path.join(attachmentRoot, 'files');
@@ -796,10 +819,25 @@ function createTelegramChannel({
       }
       rawUpdateHandler = next || null;
     },
+    async handleControlUpdate(update) {
+      if (!gateCommandPrefix || !dynamicPath) return false;
+      return handleTelegramGateCommand({
+        update,
+        prefix: gateCommandPrefix,
+        displayName: gateCommandDisplayName,
+        ownerIds,
+        staticGroupPolicies,
+        dynamicGroupsPath: dynamicPath,
+        dynamicDefaults: dynamicGroupDefaults,
+        replaceDynamicPolicies,
+        api,
+        log,
+      });
+    },
     normalizeUpdate(update) {
       const normalized = normalizeTelegramUpdate(update, {
         ownerIds,
-        allowedGroupIds: effectiveAllowedGroupIds,
+        allowedGroupIds: [...groupPolicies.keys()],
         privateOwnerOnly: true,
       });
       if (
@@ -825,6 +863,13 @@ function createTelegramChannel({
         id: identity?.id == null ? null : String(identity.id),
         username: identity?.username == null ? null : String(identity.username),
       };
+      if (gateCommandPrefix && dynamicPath && registerGateCommandMenu !== false) {
+        await ensureGroupGateCommandMenu(api, {
+          prefix: gateCommandPrefix,
+          displayName: gateCommandDisplayName,
+          log,
+        });
+      }
       return { ...botIdentity };
     },
     async prepareUpdate(update) {
@@ -1110,6 +1155,7 @@ function createTelegramChannel({
     },
     async ingestUpdate(update) {
       if (!handler) throw new Error('Telegram channel is not attached');
+      if (await channel.handleControlUpdate(update)) return { control: true };
       const prepared = await channel.prepareUpdate(update);
       if (!prepared) return { ignored: true };
       const stopTyping = prepared.respond === false

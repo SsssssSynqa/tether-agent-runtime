@@ -122,6 +122,14 @@
   "telegram": {
     "enabled": false,
     "tokenEnv": "TELEGRAM_BOT_TOKEN",
+    "gateCommandPrefix": "myagent",
+    "registerGateCommandMenu": true,
+    "dynamicGroupDefaults": {
+      "mentionPatterns": ["MyAgent", "@my_agent_bot"],
+      "ownerAlways": true,
+      "ignoreBotMessages": false,
+      "maxConsecutiveBotMessages": 6
+    },
     "allowedGroups": {
       "GROUP_CHAT_ID": {
         "enabled": false,

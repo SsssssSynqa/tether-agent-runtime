@@ -34,13 +34,13 @@
     },
     {
       "path": "bin/tether.cjs",
-      "sha256": "5713bef00ca8703649cd05f7cbe514c5c374127edd0536260f5e0a44e34a563d",
-      "size": 16128
+      "sha256": "289ac4d0f4fe4af3e43596bc9f795339c7a4d59d7f6276500f4ddf51cd9354e9",
+      "size": 16542
     },
     {
       "path": "config.example.json",
-      "sha256": "073cca9c8281af62a0bc70617e01dbdb7878a4a3d314b5fcc21f7bdbb96b4210",
-      "size": 4914
+      "sha256": "36f9deadd64a8bab14000a0ba0b04c543409372102c990ec5cdc7722be4fe564",
+      "size": 5177
     },
     {
       "path": "lib/telegram/group-batcher.cjs",
@@ -59,8 +59,8 @@
     },
     {
       "path": "package.json",
-      "sha256": "115fdb66dcfffb093c509d77d6be941183e04535699c250f7f3452489105b3e1",
-      "size": 1309
+      "sha256": "bea49e5b45c7c36a3ec9ee2aa66259ba790466ac6fea2d350cf8cb86463c5a4e",
+      "size": 1342
     },
     {
       "path": "persona-policy.example.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "public-export-manifest.json",
-      "sha256": "950483f282df8fc70c1a6f91bffafd4c0d1f420c596f014c15a62c3b5f241924",
-      "size": 9176
+      "sha256": "9bec7ad2c157f8e293a9884231f29504f719e1e3a0116d92f40923f3358296b4",
+      "size": 9392
     },
     {
       "path": "runtime/bridge/group-ingress-sequencer.js",
@@ -98,14 +98,19 @@
       "size": 476
     },
     {
+      "path": "runtime/channels/telegram-gate.cjs",
+      "sha256": "8a8f7ae7cb40721ef3db1bf21d0c500c8d6910362bd4fe9ff0c5bd950d09c3bd",
+      "size": 6907
+    },
+    {
       "path": "runtime/channels/telegram-group.cjs",
       "sha256": "d717b4df75ea62fa6cc6b6abbb7007d787a6a5a9d96f4cfaba11422f9a2a0541",
       "size": 13749
     },
     {
       "path": "runtime/channels/telegram.cjs",
-      "sha256": "2f813dda150774850f78f9edaa04daf76e4342d5be9c34b32692e1a993497e75",
-      "size": 49384
+      "sha256": "24bca8406269d48fe6487c90ba083b2daeadd1c28c83c996ed9c0bbfc48b5a9f",
+      "size": 51116
     },
     {
       "path": "runtime/channels/terminal.cjs",
@@ -114,8 +119,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "8d0ea3ac604efff6973d7a939c2b4bb24257022101de2178f7d3694a27cf1361",
-      "size": 30364
+      "sha256": "1b4310dd35f7d9ab22ecaf00b263e6043b6b4d8c62857d61c20a4a9e08f892b2",
+      "size": 31362
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",
@@ -381,6 +386,11 @@
       "path": "test/provider-circuit.cjs",
       "sha256": "1a6593703e39cde9e35e20f4cfdb53694ab0f8157e23a7c11d07abcff0efb802",
       "size": 4260
+    },
+    {
+      "path": "test/telegram-gate.cjs",
+      "sha256": "22f89e7ec652db3ece4bc0f39faccfb6db82c94a2c36703e043650a388af052e",
+      "size": 6034
     }
   ]
 }

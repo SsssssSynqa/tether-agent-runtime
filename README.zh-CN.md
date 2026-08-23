@@ -310,7 +310,7 @@ export TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
 node bin/tether-supervisor.cjs ./config.json
 ```
 
-Telegram 私聊默认只接受配置中的 owner，群聊需要显式加入 `allowedGroups`。**不要为 Telegram 再启动第二个运行时**——它和终端会自动接入同一个 session。
+Telegram 私聊默认只接受配置中的 owner，群聊可以写入静态 `allowedGroups`；也可以设置 `telegram.gateCommandPrefix`，由 owner 在群内使用 `/<prefix>_on|off|all|quiet` 动态开关和切换点名/全局模式。动态授权独立持久化为 0600 状态文件，不改静态配置，非 owner 无权开门。**不要为 Telegram 再启动第二个运行时**——它和终端会自动接入同一个 session。
 
 完整配置说明见[快速上手](docs/GETTING_STARTED.zh-CN.md)、[配置说明](docs/CONFIGURATION.zh-CN.md)与[运维与恢复](docs/OPERATIONS.zh-CN.md)；既有的无版本数据目录，必须先按运维文档执行一次显式离线迁移。
 
