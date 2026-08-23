@@ -36,7 +36,8 @@
     "maintenanceIntervalMs": 30000,
     "maintenanceActiveDelayMs": 250,
     "maintenanceErrorBaseDelayMs": 30000,
-    "maintenanceErrorMaxDelayMs": 3600000
+    "maintenanceErrorMaxDelayMs": 3600000,
+    "providerCircuitThreshold": 5
   },
   "supervision": {
     "heartbeatIntervalMs": 5000,

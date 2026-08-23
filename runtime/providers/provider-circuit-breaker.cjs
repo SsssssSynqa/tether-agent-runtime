@@ -73,9 +73,9 @@ function failureKey(causalId) {
   return crypto.createHash('sha256').update(String(causalId)).digest('hex');
 }
 
-function circuitOpenError({ justOpened = false, cause = null } = {}) {
+function circuitOpenError({ threshold = DEFAULT_THRESHOLD, justOpened = false, cause = null } = {}) {
   const error = new Error(
-    'Provider circuit is open after five distinct causal failures; manual recovery is required',
+    `Provider circuit is open after ${threshold} distinct causal failures; manual recovery is required`,
     cause ? { cause } : undefined,
   );
   error.code = 'TETHER_PROVIDER_CIRCUIT_OPEN';
@@ -97,10 +97,12 @@ class ProviderCircuitBreaker {
     this.threshold = Math.max(1, Number(threshold) || DEFAULT_THRESHOLD);
     this.onOpen = typeof onOpen === 'function' ? onOpen : null;
     this.log = log;
-    this.state = fs.existsSync(this.filePath)
+    const existed = fs.existsSync(this.filePath);
+    this.state = existed
       ? validateState(JSON.parse(fs.readFileSync(this.filePath, 'utf8')), this.threshold)
       : closedState(this.threshold);
-    if (!fs.existsSync(this.filePath)) writePrivateJson(this.filePath, this.state);
+    if (this.state.status === 'closed') this.state.threshold = this.threshold;
+    if (!existed || this.state.status === 'closed') writePrivateJson(this.filePath, this.state);
     else fs.chmodSync(this.filePath, 0o600);
   }
 
@@ -149,7 +151,7 @@ class ProviderCircuitBreaker {
 
   async run(causalId, operation) {
     if (!causalId) return operation();
-    if (this.state.status === 'open') throw circuitOpenError();
+    if (this.state.status === 'open') throw circuitOpenError({ threshold: this.state.threshold });
     try {
       const result = await operation();
       this._success();
@@ -157,7 +159,9 @@ class ProviderCircuitBreaker {
     } catch (error) {
       if (error?.providerFailure === true) {
         const justOpened = this._failure(causalId);
-        if (this.state.status === 'open') throw circuitOpenError({ justOpened, cause: error });
+        if (this.state.status === 'open') {
+          throw circuitOpenError({ threshold: this.state.threshold, justOpened, cause: error });
+        }
       }
       throw error;
     }

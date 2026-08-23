@@ -553,6 +553,7 @@ async function main() {
     assert.match(toolsCommandUsage(), /tether-tools approve/);
     assert.match(opsCommandUsage(), /tether-ops backup/);
     assert.equal(exampleConfig.supervision.heartbeatStaleMs, 30000);
+    assert.equal(exampleConfig.runtime.providerCircuitThreshold, 5);
     assert.throws(
       () => validateConfig({
         ...exampleConfig,
@@ -727,6 +728,22 @@ async function main() {
         providers: [providerConfig()],
       }),
       /restartMaxMs must not be smaller/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        runtime: { providerCircuitThreshold: 0 },
+        providers: [providerConfig()],
+      }),
+      /runtime\.providerCircuitThreshold must be a positive integer/,
+    );
+    assert.throws(
+      () => validateConfig({
+        ...configEnvelope,
+        runtime: { providerCircuitThreshold: 2.5 },
+        providers: [providerConfig()],
+      }),
+      /runtime\.providerCircuitThreshold must be a positive integer/,
     );
     const headerEnvConfigPath = path.join(root, 'header-env-config.json');
     fs.writeFileSync(headerEnvConfigPath, JSON.stringify({

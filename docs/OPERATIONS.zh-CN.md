@@ -157,7 +157,7 @@ node bin/tether-ops.cjs status ./restore-config.json
 
 ## 全局 provider 断路器
 
-五个不同因果请求均耗尽全部已配置 provider 后，持久化全局断路器会打开。打开后不再发起任何 provider 请求：Telegram 仍继续轮询并持久保存新消息，受影响 update 进入 `operator-paused`。断路器没有自动冷却，重启也不会清除。
+默认五个不同因果请求均耗尽全部已配置 provider 后，持久化全局断路器会打开；阈值可用 `runtime.providerCircuitThreshold` 调整。打开后不再发起任何 provider 请求：Telegram 仍继续轮询并持久保存新消息，受影响 update 进入 `operator-paused`。断路器没有定时自动复活，重启也不会清除；这样 provider 额度或基础设施故障不会在冷却后自行恢复消耗。
 
 在线查看状态：
 

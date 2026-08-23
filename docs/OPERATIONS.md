@@ -157,7 +157,7 @@ Do not delete `session.json` to make a failed restore start. If continuity canno
 
 ## Global provider circuit
 
-Five distinct causal requests that exhaust every configured provider open a persistent global circuit. An open circuit performs no provider calls: Telegram polling and durable persistence continue, while affected updates become `operator-paused`. The circuit never closes on a timer and startup does not clear it.
+By default, five distinct causal requests that exhaust every configured provider open a persistent global circuit. Configure the threshold with `runtime.providerCircuitThreshold`. An open circuit performs no provider calls: Telegram polling and durable persistence continue, while affected updates become `operator-paused`. The circuit never closes on a timer and startup does not clear it.
 
 Inspect it online:
 

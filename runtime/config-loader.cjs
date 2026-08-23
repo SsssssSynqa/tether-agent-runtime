@@ -657,6 +657,13 @@ function validateConfig(config) {
   ) {
     errors.push('runtime.maintenanceActiveDelayMs must be zero or a positive number');
   }
+  if (
+    config.runtime?.providerCircuitThreshold != null
+    && (!Number.isSafeInteger(Number(config.runtime.providerCircuitThreshold))
+      || Number(config.runtime.providerCircuitThreshold) <= 0)
+  ) {
+    errors.push('runtime.providerCircuitThreshold must be a positive integer');
+  }
   if (errors.length) throw new Error(`Invalid Tether config:\n- ${errors.join('\n- ')}`);
   return config;
 }

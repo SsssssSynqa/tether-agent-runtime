@@ -19,8 +19,8 @@
     },
     {
       "path": "bin/tether-ops.cjs",
-      "sha256": "cef1b389339e16af8657be67477357153fb840c92ecc9e5409a48734cb8baa00",
-      "size": 9072
+      "sha256": "f59e715bc0bcfd4caee0b635a9d6a29e74abc8a88a00562c00a15c7c412d0202",
+      "size": 9267
     },
     {
       "path": "bin/tether-supervisor.cjs",
@@ -34,13 +34,13 @@
     },
     {
       "path": "bin/tether.cjs",
-      "sha256": "132a90dfae8c2c27929c0aa285fc66b65a8e2e64e20a0d2b35e6b89668ab2dd1",
-      "size": 16067
+      "sha256": "5713bef00ca8703649cd05f7cbe514c5c374127edd0536260f5e0a44e34a563d",
+      "size": 16128
     },
     {
       "path": "config.example.json",
-      "sha256": "2a35382135910c5e76f41eb607ec720e1e97176e06442dbf0e20a66e68618053",
-      "size": 4879
+      "sha256": "073cca9c8281af62a0bc70617e01dbdb7878a4a3d314b5fcc21f7bdbb96b4210",
+      "size": 4914
     },
     {
       "path": "lib/telegram/group-batcher.cjs",
@@ -114,8 +114,8 @@
     },
     {
       "path": "runtime/config-loader.cjs",
-      "sha256": "40a786fd8df5d00bacdd528fd8e00d0346a1bc8642832e58996a2e0e1e203ee8",
-      "size": 30072
+      "sha256": "8d0ea3ac604efff6973d7a939c2b4bb24257022101de2178f7d3694a27cf1361",
+      "size": 30364
     },
     {
       "path": "runtime/durable/durable-dispatcher.js",
@@ -294,8 +294,8 @@
     },
     {
       "path": "runtime/providers/provider-circuit-breaker.cjs",
-      "sha256": "4c1815782cf941c88bd30efe8728727e5a1848b8d73bcadf0033c50a40879eaf",
-      "size": 6146
+      "sha256": "ea99f938bc14d786d7a7ad85540bf8f6921d858d64a9e37355fe7c6fd7ef0583",
+      "size": 6396
     },
     {
       "path": "runtime/providers/runtime-provider-config.cjs",
@@ -374,13 +374,13 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "1df0f8e700af7da70abb034f7ad1ce63cdd2f662bab758debd10b26d62b9227d",
-      "size": 164246
+      "sha256": "638154a779da3f31d225d5797204a6ebed73ea6f5f168b135aba9bec5ca34d9b",
+      "size": 164819
     },
     {
       "path": "test/provider-circuit.cjs",
-      "sha256": "82a9f34f29e01807226e4c8b8cc283efa6536a499b8dd77a79fbeaf99eccb2b9",
-      "size": 3282
+      "sha256": "1a6593703e39cde9e35e20f4cfdb53694ab0f8157e23a7c11d07abcff0efb802",
+      "size": 4260
     }
   ]
 }

@@ -163,9 +163,9 @@ async function main() {
   });
   const providerCircuit = new ProviderCircuitBreaker({
     filePath: path.join(config.storage.root, 'provider-circuit.json'),
-    threshold: 5,
-    onOpen: async () => providerCircuitNotifier?.(
-      '[bridge-status] Provider circuit opened after 5 distinct failed requests. '
+    threshold: config.runtime?.providerCircuitThreshold,
+    onOpen: async (state) => providerCircuitNotifier?.(
+      `[bridge-status] Provider circuit opened after ${state.threshold} distinct failed requests. `
       + 'New messages will still be received and preserved, but replies are manually paused. '
       + 'Stop runtime + supervisor, run `tether-ops circuit-clear <config>`, then explicitly resume selected updates; nothing replays automatically.',
     ),

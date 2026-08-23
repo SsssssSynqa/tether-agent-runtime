@@ -80,6 +80,30 @@ async function main() {
   await resetting.respond({ causalId: 'reset:2' });
   assert.equal(readProviderCircuitState(filePath).distinctFailures, 0, 'success resets pre-trip failures');
 
+  const configurablePath = path.join(root, 'configurable-provider-circuit.json');
+  let configurableCalls = 0;
+  const configurable = new ProviderCircuitBreaker({
+    filePath: configurablePath,
+    threshold: 2,
+    log: () => {},
+  }).wrap({
+    async respond() {
+      configurableCalls += 1;
+      throw providerFailure();
+    },
+  });
+  await assert.rejects(() => configurable.respond({ causalId: 'configurable:1' }), (error) => (
+    error.providerFailure === true && !error.circuitOpen
+  ));
+  await assert.rejects(() => configurable.respond({ causalId: 'configurable:2' }), (error) => (
+    error.circuitOpen === true && /after 2 distinct/.test(error.message)
+  ));
+  await assert.rejects(() => configurable.respond({ causalId: 'configurable:3' }), (error) => (
+    error.circuitOpen === true
+  ));
+  assert.equal(configurableCalls, 2, 'configured threshold opens before another provider call');
+  assert.equal(readProviderCircuitState(configurablePath).threshold, 2);
+
   process.stdout.write('provider circuit breaker: pass\n');
 }
 

@@ -64,7 +64,8 @@ Normalization preserves source-verifiable quotations and explicit naming events;
     "maintenanceIntervalMs": 30000,
     "maintenanceActiveDelayMs": 250,
     "maintenanceErrorBaseDelayMs": 30000,
-    "maintenanceErrorMaxDelayMs": 3600000
+    "maintenanceErrorMaxDelayMs": 3600000,
+    "providerCircuitThreshold": 5
   }
 }
 ```
@@ -78,6 +79,7 @@ The maintenance timings control the in-process memory worker:
 - `maintenanceIntervalMs`: idle poll interval;
 - `maintenanceActiveDelayMs`: delay while useful work continues; zero is allowed;
 - `maintenanceErrorBaseDelayMs` / `maintenanceErrorMaxDelayMs`: exponential error backoff bounds.
+- `providerCircuitThreshold`: number of distinct causal requests that may exhaust every eligible provider before the persistent global provider circuit opens (default `5`). A successful provider request resets the pre-trip count. The global circuit deliberately has no timer-based recovery; an operator must verify provider health and clear it explicitly so a quota or infrastructure outage cannot resume spending on its own.
 
 The standard layered CLI uses the watermarks under `memory` below. The `TetherRuntime` library still accepts `rawTailMessages`, `summaryLimit`, and `cardLimit` when embedded with the legacy `AppendOnlyMemory`, but those legacy bounds are not the standard layered-memory controls.
 

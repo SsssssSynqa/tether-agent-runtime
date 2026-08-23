@@ -115,7 +115,9 @@ function status(config) {
       record: health.record || null,
     },
     telegramInbox: inbox,
-    providerCircuit: readProviderCircuitState(path.join(config.storage.root, 'provider-circuit.json')),
+    providerCircuit: readProviderCircuitState(path.join(config.storage.root, 'provider-circuit.json'), {
+      threshold: config.runtime?.providerCircuitThreshold,
+    }),
   };
 }
 
@@ -168,11 +170,14 @@ function runOpsCommand(argv = process.argv.slice(2)) {
     return inboxForConfig(config).inventory({ states: ['dead-letter', 'operator-paused'] });
   }
   if (command === 'circuit-status') {
-    return readProviderCircuitState(path.join(config.storage.root, 'provider-circuit.json'));
+    return readProviderCircuitState(path.join(config.storage.root, 'provider-circuit.json'), {
+      threshold: config.runtime?.providerCircuitThreshold,
+    });
   }
   if (command === 'circuit-clear') {
     return withOfflineLock(config, () => new ProviderCircuitBreaker({
       filePath: path.join(config.storage.root, 'provider-circuit.json'),
+      threshold: config.runtime?.providerCircuitThreshold,
     }).clear('operator-cli-manual-clear'));
   }
   if (command === 'inspect') {
