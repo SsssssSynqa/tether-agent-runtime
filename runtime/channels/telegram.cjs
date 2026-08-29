@@ -143,9 +143,9 @@ function createTelegramApi({ token, apiBase = 'https://api.telegram.org', fetchI
     return payload;
   };
 
-  // 传输层重试——从 Syner 生产桥的 tgWithRetry 移植（2026-08-22）。
+  // Transport-layer retry adapted from the production bridge implementation.
   // Tether 首发时把这层丢了：发送碰到一次网络抖动就整轮失败，durable 层的
-  // "恢复"是整轮重新生成，比偶尔重复一条消息贵得多（8/15 Skald 实证）。
+  // Regenerating a whole turn is more costly than an occasional duplicate delivery.
   // 矩阵与源头一致：429 尊重 retry_after、5xx 与网络类错误指数退避、
   // 其余 4xx 是真实回答立刻冒上去。getUpdates 不走这层——poll 循环
   // 自带重试与 stall 检测，双层退避会拖长卡死判定。
@@ -508,7 +508,7 @@ async function dropTelegramBacklog({ api, offsetStore, log = console.log } = {})
   return { dropped, offset };
 }
 
-// Owner notifications — ported from the Syner production bridge (2026-08-22).
+// Owner notifications adapted from the production bridge implementation.
 // The source bridge tells its owner about dead-letters, failed group batches,
 // and fatal states over Telegram itself; Tether's first release demoted all of
 // those to local log lines, which nobody watches (the 8/9 "bridge fell silent"

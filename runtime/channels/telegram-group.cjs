@@ -83,7 +83,7 @@ function buildTelegramGroupBatch(batch = [], { allowedReactions = [] } = {}) {
 
 // 2026-08-18：glm-5.2 会把合法契约 JSON 裹进 markdown 围栏（```json … ```）导致
 // 整批判 invalid-json（journal 里被拒的每一条剥壳后都是合法 envelope）。
-// 与 Syner 桥 2026-07-15 stripCodeFence 同款修法：解析前剥一层围栏，裸 JSON 原样通过。
+// Match the production bridge parser: strip one code fence before parsing and pass bare JSON through.
 function stripCodeFence(text) {
   const t = String(text || '').trim();
   const m = t.match(/^```[a-zA-Z]*\s*\n?([\s\S]*?)\n?\s*```$/);

@@ -104,13 +104,13 @@
     },
     {
       "path": "runtime/channels/telegram-group.cjs",
-      "sha256": "d717b4df75ea62fa6cc6b6abbb7007d787a6a5a9d96f4cfaba11422f9a2a0541",
-      "size": 13749
+      "sha256": "a76e5cf9ab65774011c4187bcfb2b3e87f133133ac3389c2bddc35e79c6dade1",
+      "size": 13742
     },
     {
       "path": "runtime/channels/telegram.cjs",
-      "sha256": "24bca8406269d48fe6487c90ba083b2daeadd1c28c83c996ed9c0bbfc48b5a9f",
-      "size": 51116
+      "sha256": "b24e9678475cad5d88e79a434c9b2dbf55d0b7c1f81cff44e9659c6a320e5893",
+      "size": 51085
     },
     {
       "path": "runtime/channels/terminal.cjs",
