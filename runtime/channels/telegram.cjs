@@ -306,6 +306,44 @@ function groupShouldRespond(normalized, policy = {}, botIdentity = {}) {
   return textIncludesAny(normalized.text, patterns);
 }
 
+// 2026-08-30 Telegram albums: one user-visible "album" arrives as N updates that
+// only share a media_group_id — no count field, no end marker. Feeding them one
+// by one answers every photo separately. Albums land in a single poll batch in
+// practice (Telegram delivers the members within milliseconds), so we merge
+// within the batch: the head update keeps the siblings' raw messages and the
+// whole group advances the offset together. A group split across two polls
+// degrades to two turns — rare, and never loses a photo.
+function mergeTelegramAlbums(updates) {
+  const heads = new Map();
+  const merged = [];
+  for (const update of updates) {
+    const message = update?.message;
+    const albumId = message?.media_group_id;
+    if (albumId === undefined || albumId === null || albumId === '') {
+      merged.push(update);
+      continue;
+    }
+    const key = `${message.chat?.id}:${message.message_thread_id ?? ''}:${albumId}`;
+    const head = heads.get(key);
+    if (!head) {
+      heads.set(key, update);
+      merged.push(update);
+      continue;
+    }
+    if (!Array.isArray(head._albumSiblings)) head._albumSiblings = [];
+    head._albumSiblings.push(message);
+    head._albumMaxUpdateId = Math.max(
+      Number(head._albumMaxUpdateId ?? head.update_id),
+      Number(update.update_id),
+    );
+    // The album caption occasionally rides on a non-first member; keep it.
+    if (head.message && !head.message.caption && message.caption) {
+      head.message.caption = message.caption;
+    }
+  }
+  return merged;
+}
+
 function attachmentReferences(images = [], files = [], attachmentRoot = null) {
   return [...images, ...files].map((item) => ({
     kind: item.source || (item.fileName ? 'file' : 'image'),
@@ -886,6 +924,27 @@ function createTelegramChannel({
         maxFileBytes,
         maxPreviewChars: maxFilePreviewChars,
       });
+      // Album siblings folded in by mergeTelegramAlbums: usually caption-less,
+      // photo-only messages. One failed download logs a line instead of taking
+      // the whole turn down with it.
+      for (const sibling of Array.isArray(update?._albumSiblings) ? update._albumSiblings : []) {
+        try {
+          const more = await downloadTelegramAttachmentsWithApi(sibling, {
+            api,
+            imageCacheDir,
+            fileCacheDir,
+            log,
+            maxImageBytes,
+            maxFileBytes,
+            maxPreviewChars: maxFilePreviewChars,
+          });
+          images.push(...more.images);
+          files.push(...more.files);
+          if (Array.isArray(more.notes) && Array.isArray(notes)) notes.push(...more.notes);
+        } catch (error) {
+          log(`[tether] album sibling download failed message=${sibling?.message_id}: ${error.message}`);
+        }
+      }
       const quotedText = String(
         rawMessage?.reply_to_message?.text || rawMessage?.reply_to_message?.caption || '',
       ).slice(0, Math.max(0, Number(maxQuotedChars) || 0));
@@ -1194,10 +1253,13 @@ function createTelegramChannel({
             });
             watchdog.recordSuccess();
             lastPollProgressAt = Date.now();
-            for (const update of payload.result || []) {
+            for (const update of mergeTelegramAlbums(payload.result || [])) {
               if (rawUpdateHandler) await rawUpdateHandler(update);
               else await channel.ingestUpdate(update);
-              offset = Number(update.update_id) + 1;
+              // Album heads answer for their siblings: the offset must clear the
+              // whole group, or a crash here would re-deliver members we already
+              // folded into the head.
+              offset = Math.max(offset, Number(update._albumMaxUpdateId ?? update.update_id) + 1);
               offsetStore.write(offset);
               lastPollProgressAt = Date.now();
             }
@@ -1222,6 +1284,7 @@ function createTelegramChannel({
 }
 
 module.exports = {
+  mergeTelegramAlbums,
   createFileOffsetStore,
   createOwnerNotifier,
   createTelegramApi,
