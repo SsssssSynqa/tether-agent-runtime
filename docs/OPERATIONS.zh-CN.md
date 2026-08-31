@@ -16,7 +16,7 @@ launchd / systemd / container restart policy
 
 宿主机管理器负责开机启动 supervisor，并且可以另设一层有界重启策略；Tether supervisor 自己负责子进程 readiness、心跳、重启退避、jitter 与 crash-loop 预算。不要让宿主机管理器再启动第二个 `tether.cjs`，也不要让它无限重置已经耗尽预算的 crash loop。
 
-runtime 持有 `.tether-instance.lock`，supervisor 持有 `.tether-supervisor.lock`。子进程会校验 supervisor lock 里的父进程 PID/token。只有记录的进程确实不在时才回收 stale lock；损坏的 lock 一律 fail-closed。
+runtime 持有 `.tether-instance.lock`，supervisor 持有 `.tether-supervisor.lock`。子进程会校验 supervisor lock 里的父进程 PID/token。新 lock 还会绑定进程启动标记与命令行哈希：旧 PID 被无关进程复用时可安全回收，不再形成永久假锁。对旧版 PID-only lock，只在能确认当前命令与 Tether 无关时回收；无法识别或 lock 损坏时仍 fail-closed。
 
 合成 service 示例：
 

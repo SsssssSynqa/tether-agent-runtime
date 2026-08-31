@@ -158,6 +158,8 @@ Private ingress is owner-only. A group is accepted only when its chat ID is an e
 
 Telegram and terminal remain attached to the same `TetherRuntime`, `SelfsameSession`, transcript, cards, and semantic store. Do not create a Telegram-specific state root.
 
+The terminal keeps assistant text on stdout and writes the actual successful `providerLabel | model` route to stderr after each reply. This route is observational metadata from the committed output; it is not added to the conversation body.
+
 The adapter also provides:
 
 - durable updates and persisted `telegram-offset.txt`;

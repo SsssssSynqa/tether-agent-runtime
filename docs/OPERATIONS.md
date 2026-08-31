@@ -16,7 +16,7 @@ launchd / systemd / container restart policy
 
 The host manager starts the supervisor at boot and may apply its own separately bounded restart policy. The Tether supervisor owns child readiness, heartbeat monitoring, restart backoff, jitter, and crash-loop budget. Do not configure the host manager to launch a second `tether.cjs` process or to reset a terminal crash loop forever.
 
-The runtime owns `.tether-instance.lock`; the supervisor owns `.tether-supervisor.lock`. The child validates the parent PID/token recorded in the supervisor lock. Stale locks are reclaimed only when their recorded process is no longer alive; malformed locks fail closed.
+The runtime owns `.tether-instance.lock`; the supervisor owns `.tether-supervisor.lock`. The child validates the parent PID/token recorded in the supervisor lock. New locks bind the PID to a process-start marker and hashed command identity, so a PID later reused by an unrelated process is reclaimed instead of becoming a permanent false lock. Legacy PID-only locks are reclaimed only when the live command is observably unrelated to Tether; an unavailable identity check and malformed locks fail closed.
 
 Synthetic service definitions:
 

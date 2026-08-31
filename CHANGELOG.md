@@ -2,6 +2,25 @@
 
 All notable changes to Tether are documented here. Versions follow semantic versioning.
 
+## Unreleased - 2026-08-31
+
+### Added
+
+- Successful-output route provenance (`providerId`, `providerLabel`, and actual model) is now committed to the causal journal and raw transcript. Failed fallbacks and rejected candidates are excluded; the terminal shows the route on stderr without changing assistant text.
+- `npm run test:shadow` rebuilds the runtime from tracked regular files under a synthetic credential-free home and runs the complete offline suite. The full release gate now includes this shadow certificate.
+
+### Fixed
+
+- Instance locks now bind a PID to process-start and hashed-command identity, preventing an unrelated process that later reuses the PID from creating a permanent false lock. Legacy PID-only locks remain fail-closed unless the live process is observably unrelated to Tether, and runtime heartbeats validate the supervisor's process identity as well as PID/token.
+- Refreshed the exact-byte public export lock after the Telegram album aggregation update and the changes above.
+
+### 未发布中文摘要
+
+- 新增真实产出路由记录：只把形成最终正文的 provider/模型写入 causal journal 与 raw transcript，失败回落和被驳候选不冒充产出来源；终端通过 stderr 展示，不污染回答正文。
+- 新增 tracked-source shadow 离线证书；全发布门会在不带本地状态和凭据的紧凑影子树中重跑 runtime suites。
+- 修复 PID 复用假锁：新 lock 绑定进程启动标记和命令行哈希，runtime 也会校验 supervisor 身份；无法识别时仍 fail-closed。
+- 重建并验证 public export exact-byte lock。
+
 ## [0.2.0] - 2026-08-23
 
 This release closes the gap between Tether's durable core and the operational behavior required by a continuously running Telegram agent.

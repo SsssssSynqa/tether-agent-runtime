@@ -175,13 +175,28 @@ class CausalJournal {
     });
   }
 
-  commitOutput(causalId, { text, providerId = null } = {}) {
+  commitOutput(causalId, { text, providerId = null, outputRoutes = [] } = {}) {
     const outputText = String(text ?? '');
+    const routeField = (value, maxLength) => {
+      const normalized = value == null
+        ? ''
+        : String(value).replace(/[\u0000-\u001f\u007f]/gu, ' ').trim();
+      return normalized ? normalized.slice(0, maxLength) : null;
+    };
+    const normalizedRoutes = (Array.isArray(outputRoutes) ? outputRoutes : [])
+      .slice(0, 12)
+      .map((route) => ({
+        providerId: routeField(route?.providerId, 160),
+        providerLabel: routeField(route?.providerLabel, 160),
+        model: routeField(route?.model, 240),
+      }))
+      .filter((route) => route.providerId || route.providerLabel || route.model);
     const output = {
       outputId: `output:${sha256(`v1\0${causalId}\0${outputText}`)}`,
       text: outputText,
       textSha256: sha256(outputText),
       providerId: providerId ? String(providerId) : null,
+      outputRoutes: normalizedRoutes,
       committedAt: this.clock(),
     };
     return this._transition(causalId, ['inference-started'], 'committed', { output });

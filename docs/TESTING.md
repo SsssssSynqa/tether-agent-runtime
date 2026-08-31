@@ -22,7 +22,7 @@ After installing Console development dependencies:
 make check-all
 ```
 
-This adds Console backend tests plus frontend tests, static checks, and a production build.
+This adds Console backend tests plus frontend tests, static checks, a production build, and the tracked-source shadow runtime suite.
 
 ## Runtime suites
 
@@ -40,7 +40,7 @@ npm test
 - day/week card settlement, source coverage, latest logical versions, attribution, aliases, protected quotations, and naming events;
 - semantic extraction/verification/high-risk review, queue idempotency, modes, projections, and bounded manifests;
 - optional embeddings, incremental maintenance, bulk backfill, query recall, compaction, and card fallback;
-- provider URL/credential/header validation, purpose models, images, failover, and empty/ambiguous results;
+- provider URL/credential/header validation, purpose models, images, failover, successful-output route provenance, and empty/ambiguous results;
 - bounded tool calls, path confinement, symlink/hidden/credential rejection, storage/workspace isolation, approvals, replay, and ambiguous effects;
 - Telegram owner/group authorization, mention/all modes, batching, envelope repair, reactions, attachments, deterministic chunking, and missing-reply fallback;
 - durable inbox transitions, capacity deferral, exact committed-output replay, operator pauses, dead letters, and manual requeue guards;
@@ -49,6 +49,17 @@ npm test
 - exact-byte source export and stale-managed-file detection.
 
 Every test owns a temporary directory. Provider and Telegram HTTP calls use injected fakes.
+
+To prove the suite against the exact tracked source rather than a dirty working
+tree or live runtime directory, run:
+
+```bash
+npm run test:shadow
+```
+
+This builds a compact fixture from `git ls-files`, gives it a synthetic `HOME`
+with no provider or Telegram credentials, and runs all runtime suites there.
+Untracked production state and local overlays are deliberately absent.
 
 ## Selfsame Protocol probe
 

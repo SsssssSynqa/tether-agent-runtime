@@ -33,6 +33,10 @@ const {
 } = require('../runtime/selfsame-session.cjs');
 const { TetherRuntime } = require('../runtime/tether-runtime.cjs');
 const { createMemoryChannel } = require('../runtime/channels/memory-channel.cjs');
+const {
+  createTerminalChannel,
+  formatOutputRoutes,
+} = require('../runtime/channels/terminal.cjs');
 const { createOpenAICompatibleProvider } = require('../runtime/providers/openai-compatible.cjs');
 const { ToolJournal, sha256: toolSha256 } = require('../runtime/tools/tool-journal.cjs');
 const {
@@ -148,6 +152,22 @@ function makeFlakyChannel(id) {
 
 async function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tether-offline-'));
+  assert.equal(
+    formatOutputRoutes([{ providerId: 'station', providerLabel: 'Station', model: 'model-1' }]),
+    'Station | model-1',
+  );
+  let terminalText = '';
+  let terminalDiagnostics = '';
+  const routeTerminal = createTerminalChannel({
+    output: { write(value) { terminalText += value; } },
+    diagnosticOutput: { write(value) { terminalDiagnostics += value; } },
+  });
+  await routeTerminal.send({
+    text: 'hello',
+    outputRoutes: [{ providerId: 'station', providerLabel: 'Station', model: 'model-1' }],
+  });
+  assert.equal(terminalText, 'hello\n', 'route annotation must not contaminate stdout assistant text');
+  assert.equal(terminalDiagnostics, '[route] Station | model-1\n');
   try {
     const genericPolicy = normalizeMemoryPolicy({
       agent: { entityId: 'anchor', displayName: 'Anchor' },
@@ -839,7 +859,15 @@ async function main() {
         }
         lastProviderMessages = structuredClone(messages);
         const last = messages.filter((item) => item.role === 'user').at(-1);
-        return { text: `echo:${last.content}`, providerId: 'offline' };
+        return {
+          text: `echo:${last.content}`,
+          providerId: 'offline',
+          outputRoutes: [{
+            providerId: 'offline',
+            providerLabel: 'Offline fixture',
+            model: 'fixture-model',
+          }],
+        };
       },
     };
     const firstSession = new SelfsameSession({
@@ -869,6 +897,16 @@ async function main() {
     assert.ok(checkpointAfterFirstTurn.memoryProof.transcriptBytes > 0);
     assert.equal(checkpointAfterFirstTurn.memoryProof.messageCount, 2);
     const firstOutputId = first.outputId;
+    assert.deepEqual(runtime.causal.state(first.causalId).output.outputRoutes, [{
+      providerId: 'offline',
+      providerLabel: 'Offline fixture',
+      model: 'fixture-model',
+    }]);
+    assert.deepEqual(memory.messages().at(-1).metadata.outputRoutes, [{
+      providerId: 'offline',
+      providerLabel: 'Offline fixture',
+      model: 'fixture-model',
+    }]);
 
     const exactDuplicate = await terminal.receive(terminalInput);
     assert.equal(exactDuplicate.outputId, firstOutputId);
@@ -2165,12 +2203,33 @@ async function main() {
           return {
             text: '{"replies":[{"text":"repaired reply","replyToMessageId":19}]}',
             providerId: 'offline-observation-repair',
+            outputRoutes: [{
+              providerId: 'offline-observation-repair',
+              providerLabel: 'Repair fixture',
+              model: 'repair-model',
+            }],
           };
         }
         if (messages.some((message) => String(message.content || '').includes('TG_GROUP_BATCH_V1'))) {
-          return { text: 'malformed group output', providerId: 'offline-observation' };
+          return {
+            text: 'malformed group output',
+            providerId: 'offline-observation',
+            outputRoutes: [{
+              providerId: 'offline-observation',
+              providerLabel: 'Rejected fixture',
+              model: 'rejected-model',
+            }],
+          };
         }
-        return { text: 'continuous reply', providerId: 'offline-observation' };
+        return {
+          text: 'continuous reply',
+          providerId: 'offline-observation',
+          outputRoutes: [{
+            providerId: 'offline-observation',
+            providerLabel: 'Observation fixture',
+            model: 'observation-model',
+          }],
+        };
       },
     };
     const observationMemory = new LayeredMemory({
@@ -2320,10 +2379,22 @@ async function main() {
     assert.equal(committedGroupRound.groupIngress, true);
     assert.match(committedGroupRound.user, /quoted JSONL/);
     assert.equal(committedGroupRound.assistant, 'Reply to message 19: repaired reply');
-    assert.equal(runtimeGroupInbox.getState(46).state, 'done');
+    assert.deepEqual(committedGroupRound.outputRoutes, [{
+      providerId: 'offline-observation-repair',
+      providerLabel: 'Repair fixture',
+      model: 'repair-model',
+    }], 'only the accepted repair route is committed; the rejected candidate is excluded');
     const committedGroupCausal = [...observationRuntime.causal.latest.values()].find(
       (record) => record.input?.messageId === 'telegram:group-batch:-77:46',
     );
+    const committedGroupTranscript = fs.readFileSync(
+      path.join(observationRoot, 'memory', 'transcript.jsonl'),
+      'utf8',
+    ).trim().split('\n').map(JSON.parse).filter((entry) => (
+      entry.type === 'turn' && entry.causalIds?.includes(committedGroupCausal?.causalId)
+    ));
+    assert.equal(runtimeGroupInbox.getState(46).state, 'done');
+    assert.deepEqual(committedGroupTranscript.at(-1).outputRoutes, committedGroupRound.outputRoutes);
     assert.equal(
       committedGroupCausal.output.text,
       '{"replies":[{"text":"repaired reply","replyToMessageId":19}]}',
@@ -3614,6 +3685,82 @@ async function main() {
     const restartedLock = acquireInstanceLock(instanceLockPath);
     assert.equal(restartedLock.release(), true, 'storage lock must be reusable after an orderly release');
 
+    const identityHash = (char) => char.repeat(64);
+    const reusedPidLockPath = path.join(root, 'single-writer', '.reused-pid.lock');
+    fs.writeFileSync(reusedPidLockPath, `${JSON.stringify({
+      pid: 4242,
+      token: 'old-owner',
+      acquiredAt: '2026-08-30T00:00:00.000Z',
+      processIdentity: { startedAt: 'old-start', commandSha256: identityHash('a') },
+    })}\n`);
+    const reclaimedReusedPid = acquireInstanceLock(reusedPidLockPath, {
+      pid: 5252,
+      processAlive: () => true,
+      processIdentity: (pid) => (pid === 4242
+        ? { startedAt: 'new-start', commandSha256: identityHash('b'), isTetherProcess: false }
+        : { startedAt: 'owner-start', commandSha256: identityHash('c'), isTetherProcess: true }),
+    });
+    assert.equal(reclaimedReusedPid.release(), true, 'a live reused PID with mismatched identity is stale');
+
+    const legacyForeignLockPath = path.join(root, 'single-writer', '.legacy-foreign.lock');
+    fs.writeFileSync(legacyForeignLockPath, `${JSON.stringify({
+      pid: 6262,
+      token: 'legacy-owner',
+      acquiredAt: '2026-08-30T00:00:00.000Z',
+    })}\n`);
+    const reclaimedLegacyForeignPid = acquireInstanceLock(legacyForeignLockPath, {
+      pid: 7272,
+      processAlive: () => true,
+      processIdentity: (pid) => (pid === 6262
+        ? { startedAt: 'foreign-start', commandSha256: identityHash('d'), isTetherProcess: false }
+        : { startedAt: 'owner-start', commandSha256: identityHash('e'), isTetherProcess: true }),
+    });
+    assert.equal(reclaimedLegacyForeignPid.release(), true, 'legacy PID-only lock is stale when the live process is observably unrelated');
+
+    const legacyTetherLockPath = path.join(root, 'single-writer', '.legacy-tether.lock');
+    fs.writeFileSync(legacyTetherLockPath, `${JSON.stringify({
+      pid: 8282,
+      token: 'legacy-tether-owner',
+      acquiredAt: '2026-08-30T00:00:00.000Z',
+    })}\n`);
+    assert.throws(
+      () => acquireInstanceLock(legacyTetherLockPath, {
+        pid: 9292,
+        processAlive: () => true,
+        processIdentity: (pid) => (pid === 8282
+          ? { startedAt: 'tether-start', commandSha256: identityHash('f'), isTetherProcess: true }
+          : { startedAt: 'owner-start', commandSha256: identityHash('0'), isTetherProcess: true }),
+      }),
+      (error) => error.code === 'TETHER_INSTANCE_LOCKED',
+      'legacy lock still fails closed when the live process is Tether',
+    );
+
+    const parentIdentityRoot = path.join(root, 'parent-identity');
+    fs.mkdirSync(parentIdentityRoot, { recursive: true });
+    fs.writeFileSync(path.join(parentIdentityRoot, '.tether-supervisor.lock'), `${JSON.stringify({
+      pid: 3030,
+      token: 'supervisor-token',
+      acquiredAt: '2026-08-30T00:00:00.000Z',
+      processIdentity: { startedAt: 'original-parent', commandSha256: identityHash('1') },
+    })}\n`);
+    const parentIdentityErrors = [];
+    const parentIdentityReporter = new RuntimeHealthReporter({
+      filePath: path.join(parentIdentityRoot, 'runtime-health.json'),
+      supervisorPid: 3030,
+      supervisorToken: 'supervisor-token',
+      processAlive: () => true,
+      processIdentity: () => ({
+        startedAt: 'reused-parent-pid',
+        commandSha256: identityHash('2'),
+        isTetherProcess: false,
+      }),
+      onWriteError: (error) => parentIdentityErrors.push(error),
+      setIntervalImpl: () => ({ unref() {} }),
+      clearIntervalImpl: () => {},
+    });
+    parentIdentityReporter._safeWrite();
+    assert.equal(parentIdentityErrors.at(-1)?.code, 'TETHER_SUPERVISOR_GONE');
+
     assert.throws(
       () => new CausalJournal({ directory: (() => {
         const directory = path.join(root, 'corrupt-causal');
@@ -3679,6 +3826,30 @@ async function main() {
       routed.length = 0;
       await split.respond({ messages: [{ role: 'user', content: 'x' }], purpose: undefined });
       assert.match(routed[0], /voice\.invalid/, 'chat must skip a background-only provider');
+
+      let provenanceCalls = 0;
+      const provenanceClient = createOpenAICompatibleProvider({
+        providers: [
+          baseProvider({ id: 'failed', label: 'Failed station', maxAttempts: 1 }),
+          baseProvider({ id: 'winner', label: 'Winning station', model: 'winner-model' }),
+        ],
+        fetchImpl: async () => {
+          provenanceCalls += 1;
+          if (provenanceCalls === 1) {
+            return { ok: false, status: 401, json: async () => ({ error: { message: 'unauthorized' } }) };
+          }
+          return { ok: true, status: 200, json: async () => okBody };
+        },
+      });
+      const provenance = await provenanceClient.respond({
+        messages: [{ role: 'user', content: 'x' }],
+        purpose: 'chat',
+      });
+      assert.deepEqual(provenance.outputRoutes, [{
+        providerId: 'winner',
+        providerLabel: 'Winning station',
+        model: 'winner-model',
+      }], 'route provenance contains only the successful provider/model');
 
       // A purpose boundary is an identity/billing boundary, not a preference.
       // If no eligible provider exists, fail before network I/O instead of

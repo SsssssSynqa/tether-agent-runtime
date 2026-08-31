@@ -297,6 +297,11 @@
       "mode": "755"
     },
     {
+      "source": "scripts/run-shadow-tests.cjs",
+      "target": "scripts/run-shadow-tests.cjs",
+      "mode": "755"
+    },
+    {
       "source": "scripts/verify-export-lock.cjs",
       "target": "scripts/verify-export-lock.cjs",
       "mode": "755"

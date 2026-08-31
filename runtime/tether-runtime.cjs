@@ -106,6 +106,7 @@ class TetherRuntime {
       metadata: {
         causalId: causalRecord.causalId,
         providerId: output.providerId,
+        outputRoutes: output.outputRoutes || [],
       },
     }).record;
   }
@@ -124,7 +125,11 @@ class TetherRuntime {
           channelId: channel.id,
           role: 'assistant',
           text: assistantHistoryText,
-          metadata: { causalId: causalRecord.causalId, providerId: output.providerId },
+          metadata: {
+            causalId: causalRecord.causalId,
+            providerId: output.providerId,
+            outputRoutes: output.outputRoutes || [],
+          },
         }).record,
       };
     }
@@ -149,7 +154,12 @@ class TetherRuntime {
       semanticRawMessages: sourceMetadata.semanticRawMessages || [],
       sourceMessageId: sourceMessage.messageId,
       outputMessageId: output.outputId,
-      completion: { providerId: output.providerId || null },
+      completion: {
+        providerId: output.providerId || null,
+        providerLabel: output.outputRoutes?.[0]?.providerLabel || null,
+        model: output.outputRoutes?.[0]?.model || null,
+      },
+      outputRoutes: output.outputRoutes || [],
     });
     return {
       user: this.memory.messageView({
@@ -166,7 +176,11 @@ class TetherRuntime {
         channelId: channel.id,
         role: 'assistant',
         text: assistantHistoryText,
-        metadata: { causalId: causalRecord.causalId, providerId: output.providerId },
+        metadata: {
+          causalId: causalRecord.causalId,
+          providerId: output.providerId,
+          outputRoutes: output.outputRoutes || [],
+        },
       }),
     };
   }
@@ -303,6 +317,7 @@ class TetherRuntime {
         replyToMessageId: sourceMessage.messageId,
         sourceMessage: structuredClone(sourceMessage),
         outputId: started.output.outputId,
+        outputRoutes: started.output.outputRoutes || [],
       });
     } catch (error) {
       if (error?.deliveryAmbiguous === true) {
@@ -469,6 +484,7 @@ class TetherRuntime {
     causalRecord = this.causal.commitOutput(causalRecord.causalId, {
       text: result.text,
       providerId: result.providerId || null,
+      outputRoutes: result.outputRoutes || [],
     });
     const recorded = await this._recordCommittedTurn(
       state,

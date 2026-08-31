@@ -198,6 +198,8 @@ English documentation: [CONFIGURATION.md](CONFIGURATION.md).
 
 适配器按顺序尝试供应商，接受第一个有效非空 completion。供应商回落不会改变 session 或身份。状态不明的工具调用推理会人工暂停，不会自动重复。
 
+每个已提交的 assistant turn 都会把 `outputRoutes` 来源写入 causal journal 与 raw transcript：包含真正成功的 `providerId`、面向运维的 `providerLabel` 和按 purpose 实际选中的 `model`。失败站点、被拒候选、URL、header 与密钥不会写入。旧 turn 没有该字段仍完全有效，只表示“未记录”，不能猜成配置链的第一站。路由元数据只用于观测，不进入 assistant 正文或下一轮模型 prompt。
+
 ## 本地工具
 
 ```json

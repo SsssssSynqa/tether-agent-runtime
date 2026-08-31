@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: check check-all core-check runtime-test protocol-test export-check public-check markdown-check console-check console-backend-test console-frontend-test
+.PHONY: check check-all core-check runtime-test protocol-test export-check public-check markdown-check shadow-check console-check console-backend-test console-frontend-test
 
 check: core-check
 
-check-all: core-check console-check
+check-all: core-check console-check shadow-check
 
 core-check: runtime-test protocol-test export-check public-check markdown-check
 
@@ -22,6 +22,9 @@ public-check:
 
 markdown-check:
 	node scripts/check-markdown-links.cjs
+
+shadow-check:
+	npm run test:shadow
 
 console-check: console-backend-test console-frontend-test
 

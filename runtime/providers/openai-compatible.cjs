@@ -188,6 +188,11 @@ function messagesForProvider(messages, sourceParts, provider) {
 }
 
 function providerResult(provider, model, purpose, payload, message) {
+  const outputRoute = {
+    providerId: String(provider.id),
+    providerLabel: String(provider.label || provider.id),
+    model: String(model),
+  };
   return {
     text: completionTextFromMessage(message),
     providerId: provider.id,
@@ -195,6 +200,9 @@ function providerResult(provider, model, purpose, payload, message) {
     model,
     purpose,
     finishReason: payload?.choices?.[0]?.finish_reason || null,
+    // Only the successful response that contributed the committed text is
+    // reported. Failed providers and rejected candidates never enter this list.
+    outputRoutes: [outputRoute],
   };
 }
 

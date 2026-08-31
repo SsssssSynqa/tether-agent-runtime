@@ -877,6 +877,8 @@ class ConversationHistory {
         ...(entry.semanticPacketId
           ? { semanticPacketId: String(entry.semanticPacketId) }
           : {}),
+        ...(entry.completion ? { completion: entry.completion } : {}),
+        ...(Array.isArray(entry.outputRoutes) ? { outputRoutes: entry.outputRoutes } : {}),
       });
       return {};
     });
@@ -1136,6 +1138,7 @@ class ConversationHistory {
       chunks: Array.isArray(metadata.chunks) ? metadata.chunks : [],
       sourceParts: this._archiveSourceParts(metadata.sourceParts || []),
       completion: metadata.completion || null,
+      outputRoutes: Array.isArray(metadata.outputRoutes) ? metadata.outputRoutes : [],
     });
     const round = {
       user: userText,
@@ -1149,6 +1152,7 @@ class ConversationHistory {
         ? { semanticPacketId: String(metadata.semanticPacketId) }
         : {}),
       ...(metadata.completion ? { completion: metadata.completion } : {}),
+      ...(Array.isArray(metadata.outputRoutes) ? { outputRoutes: metadata.outputRoutes } : {}),
       provenance: {
         trustZones: metadata.trustZone ? [String(metadata.trustZone)] : [],
         chatIds: metadata.chatId ? [String(metadata.chatId)] : [],
@@ -1391,6 +1395,7 @@ class ConversationHistory {
         correctedAt: new Date().toISOString(),
         correctionReason: String(metadata.reason || 'response-contract-invalid'),
         ...(metadata.completion ? { completion: metadata.completion } : {}),
+        ...(Array.isArray(metadata.outputRoutes) ? { outputRoutes: metadata.outputRoutes } : {}),
         ...(metadata.semanticPacketId
           ? { semanticPacketId: String(metadata.semanticPacketId) }
           : {}),
@@ -1409,6 +1414,7 @@ class ConversationHistory {
       assistant: String(assistantText || ''),
       chunks: [{ kind: 'content', text: String(assistantText || '') }],
       completion: metadata.completion || null,
+      outputRoutes: Array.isArray(metadata.outputRoutes) ? metadata.outputRoutes : [],
       semanticPacketId: metadata.semanticPacketId || null,
     });
     this._requestBackgroundFold();

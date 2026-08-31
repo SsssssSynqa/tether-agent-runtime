@@ -59,8 +59,8 @@
     },
     {
       "path": "package.json",
-      "sha256": "bea49e5b45c7c36a3ec9ee2aa66259ba790466ac6fea2d350cf8cb86463c5a4e",
-      "size": 1342
+      "sha256": "d8c7544a78c99ccd49c363e3015af3e7c63a55ec2db0f9fb3e40d10d70c24949",
+      "size": 1400
     },
     {
       "path": "persona-policy.example.md",
@@ -69,8 +69,8 @@
     },
     {
       "path": "public-export-manifest.json",
-      "sha256": "9bec7ad2c157f8e293a9884231f29504f719e1e3a0116d92f40923f3358296b4",
-      "size": 9392
+      "sha256": "043df02c7f5d9a6f4cdee1b8d0509c1ec24a5f3f25ed4ed63671ba1bab33b094",
+      "size": 9521
     },
     {
       "path": "runtime/bridge/group-ingress-sequencer.js",
@@ -89,8 +89,8 @@
     },
     {
       "path": "runtime/causal-journal.cjs",
-      "sha256": "f3ca247ed10f37a8dfb59ef3ea70ca0163cc11e8e2bad3157c96188c4edcb753",
-      "size": 6883
+      "sha256": "f612dcdfdebc096ea33c03285158622f172121b8dc67ab0b0a8db748f1750f4f",
+      "size": 7563
     },
     {
       "path": "runtime/channels/memory-channel.cjs",
@@ -109,13 +109,13 @@
     },
     {
       "path": "runtime/channels/telegram.cjs",
-      "sha256": "b24e9678475cad5d88e79a434c9b2dbf55d0b7c1f81cff44e9659c6a320e5893",
-      "size": 51085
+      "sha256": "3c73c924b3aff6b9c56f27aa55ce35cd9c406eab7b7316da775c5b9413795aab",
+      "size": 53823
     },
     {
       "path": "runtime/channels/terminal.cjs",
-      "sha256": "6b865c7d4a729fb4e24ca50213d5b1dad7e47d8e22252fc829869551e65d6579",
-      "size": 1020
+      "sha256": "4089ced00efed40ea6a9aeb47a45c8a917a9344ef1bf803c5ba8744b68ce094e",
+      "size": 1642
     },
     {
       "path": "runtime/config-loader.cjs",
@@ -149,8 +149,8 @@
     },
     {
       "path": "runtime/instance-lock.cjs",
-      "sha256": "60f37c9bee55c008f85f6c1a48cab768d3fcd1a83fa3042326647a058a2f63e1",
-      "size": 2928
+      "sha256": "2867f5b2ec4a65421bdd443a2cc9c9b81721cccfa14a7ff40e2b2a9ef6e364fb",
+      "size": 5760
     },
     {
       "path": "runtime/memory/append-only-memory.cjs",
@@ -174,8 +174,8 @@
     },
     {
       "path": "runtime/memory/conversation-history.js",
-      "sha256": "4d27dcbfca8946a4852b13017a16b3c26131c4cf24a006116f6c5bb7c9883ddb",
-      "size": 70425
+      "sha256": "f10b8ca4abfef2de48fcfb13170ad8575872887dcb60c0f7145c5acb8be316ff",
+      "size": 70956
     },
     {
       "path": "runtime/memory/external-recall-adapter.cjs",
@@ -279,8 +279,8 @@
     },
     {
       "path": "runtime/operations/health.cjs",
-      "sha256": "e2f3db5a970e5c8a2b170584945fb6c499b3a24d3644db74f5b4c9ef0741d2ee",
-      "size": 6584
+      "sha256": "3fc3da79696b18a72033f0935979fcc73c737a2236f0b32da13df1bc4c06ae4e",
+      "size": 6978
     },
     {
       "path": "runtime/operations/storage-schema.cjs",
@@ -294,8 +294,8 @@
     },
     {
       "path": "runtime/providers/openai-compatible.cjs",
-      "sha256": "6e15e38948b8d3d1356893ab75bbf8fad6df07c3990e2050aaa70928a2fd654e",
-      "size": 28002
+      "sha256": "4e0801ce3b24770b025f75fd74df08fe2fed6a08cb2580e02f3685984f2d29f7",
+      "size": 28341
     },
     {
       "path": "runtime/providers/provider-circuit-breaker.cjs",
@@ -314,8 +314,8 @@
     },
     {
       "path": "runtime/tether-runtime.cjs",
-      "sha256": "bd96344bd70722d066255c2b6cf7e5d1fe26ac6270e6ceae74d8379933cf73b5",
-      "size": 18721
+      "sha256": "14f13934bd7befee6b139ed6952c97e5930b042703d54eb58951f5d28cc8d08e",
+      "size": 19232
     },
     {
       "path": "runtime/tools/tool-journal.cjs",
@@ -353,6 +353,11 @@
       "size": 9463
     },
     {
+      "path": "scripts/run-shadow-tests.cjs",
+      "sha256": "293b08cb88bdd77246e09b44e49d5b755108c30cd78b84ae58f9524dfc78d715",
+      "size": 3563
+    },
+    {
       "path": "scripts/verify-export-lock.cjs",
       "sha256": "a7b3f828b55022205af73a103961caa4e9f0436a74cef81f60748b1f45335290",
       "size": 3401
@@ -379,8 +384,8 @@
     },
     {
       "path": "test/offline.cjs",
-      "sha256": "638154a779da3f31d225d5797204a6ebed73ea6f5f168b135aba9bec5ca34d9b",
-      "size": 164819
+      "sha256": "ba5f9e7e678baf401105ae1e8ed4d5201ad4774904245d5e373ccc72c7e9e735",
+      "size": 172002
     },
     {
       "path": "test/provider-circuit.cjs",

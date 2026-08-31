@@ -4,7 +4,12 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { readLock } = require('../instance-lock.cjs');
+const {
+  isProcessAlive,
+  readLock,
+  readProcessIdentity,
+  sameProcessIdentity,
+} = require('../instance-lock.cjs');
 const { writeJsonAtomic } = require('./storage-schema.cjs');
 
 function sha256(value) {
@@ -76,6 +81,8 @@ class RuntimeHealthReporter {
     onWriteError = () => {},
     supervisorPid = process.env.TETHER_SUPERVISOR_PID || null,
     supervisorToken = process.env.TETHER_SUPERVISOR_TOKEN || null,
+    processAlive = isProcessAlive,
+    processIdentity = readProcessIdentity,
   } = {}) {
     if (!filePath) throw new Error('RuntimeHealthReporter requires filePath');
     this.filePath = path.resolve(filePath);
@@ -88,6 +95,8 @@ class RuntimeHealthReporter {
     this.onWriteError = onWriteError;
     this.supervisorPid = supervisorPid == null ? null : Number(supervisorPid);
     this.supervisorToken = supervisorToken == null ? null : String(supervisorToken);
+    this.processAlive = processAlive;
+    this.processIdentity = processIdentity;
     this.timer = null;
     this.record = {
       schemaVersion: 1,
@@ -114,19 +123,21 @@ class RuntimeHealthReporter {
   _safeWrite() {
     try {
       if (this.supervisorPid) {
-        try { process.kill(this.supervisorPid, 0); } catch (error) {
-          if (error.code !== 'EPERM') {
-            const failure = new Error('Tether supervisor process is no longer alive');
-            failure.code = 'TETHER_SUPERVISOR_GONE';
-            throw failure;
-          }
+        if (!this.processAlive(this.supervisorPid)) {
+          const failure = new Error('Tether supervisor process is no longer alive');
+          failure.code = 'TETHER_SUPERVISOR_GONE';
+          throw failure;
         }
         if (this.supervisorToken) {
           const lock = readLock(path.join(path.dirname(this.filePath), '.tether-supervisor.lock'));
+          const identityMatches = lock?.processIdentity
+            ? sameProcessIdentity(lock.processIdentity, this.processIdentity(this.supervisorPid))
+            : null;
           if (
             !lock
             || lock.pid !== this.supervisorPid
             || lock.token !== this.supervisorToken
+            || (lock.processIdentity && identityMatches !== true)
           ) {
             const failure = new Error('Tether supervisor lock identity no longer matches');
             failure.code = 'TETHER_SUPERVISOR_GONE';

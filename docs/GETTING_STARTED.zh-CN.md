@@ -158,6 +158,8 @@ node bin/tether-supervisor.cjs ./config.json
 
 Telegram 和终端始终接在同一个 `TetherRuntime`、`SelfsameSession`、transcript、卡片与语义库上。不要创建 Telegram 专用数据根。
 
+终端会继续把 assistant 正文写到 stdout，并在每次回答后把真正成功的 `providerLabel | model` 路由写到 stderr。这是已提交输出的观测元数据，不会混入对话正文。
+
 适配器还包含：
 
 - durable update 与持久化 `telegram-offset.txt`；

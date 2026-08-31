@@ -202,6 +202,8 @@ Remote URLs must use HTTPS. Plain HTTP is accepted only for `localhost`, `127.0.
 
 The adapter tries providers in order and accepts the first valid non-empty completion. Provider failover does not change the session or identity. Ambiguous tool-call inference is operator-paused rather than automatically repeated.
 
+For every committed assistant turn, Tether writes `outputRoutes` provenance to the causal journal and raw transcript. Each entry contains the successful `providerId`, operator-facing `providerLabel`, and actual purpose-selected `model`. Failed providers, rejected candidates, URLs, headers, and credentials are not recorded. Older turns without this field remain valid and mean “not recorded”, not “the first configured provider”. Route metadata is observational and never enters the assistant message body or the next model prompt.
+
 ## Local tools
 
 ```json
