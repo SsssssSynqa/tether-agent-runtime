@@ -68,6 +68,8 @@ Every accepted turn receives a stable causal ID before inference. The causal jou
 
 The runtime serializes persona turns through one queue, so all channels append to one history in a deterministic order. Telegram adds a durable inbox around that queue. Duplicate updates resolve to the same causal record; a lost delivery acknowledgement reuses the committed response and does not call the model again.
 
+Committed assistant turns also carry `outputRoutes`: the provider ID/label and model that produced the accepted final text. Failed failover attempts and rejected group-envelope repair candidates are excluded. The same provenance is copied to the causal journal, raw transcript, and active history as metadata; it is never concatenated into the assistant body or a later prompt. A missing field on an older turn means “not recorded,” not an inferred route.
+
 Telegram group messages are durably accumulated into exact batches. The provider returns a bounded JSON reply envelope, which is validated and repaired at most the configured number of times. Exact batch/run records are replayed after a crash. Long outputs are split deterministically below Telegram's limit; only the first chunk carries the reply target. If that target has disappeared, the adapter retries once without reply metadata while preserving the same committed output.
 
 Capacity and transient transport failures back off without turning one update into duplicate inference. Ambiguous inference, tool effects, or delivery are operator-paused rather than guessed. Repeated recoverable failures end in inspectable dead-letter state.
@@ -123,7 +125,7 @@ Tool intent, approval, and result are durably journaled. Replaying an identical 
 
 `MemoryMaintenanceSupervisor` runs inside the persona runtime. It starts immediately, is triggered after committed turns, drains successful work with a short active delay, idles at the configured interval, and exponentially backs off after failures. One cycle processes semantic work, card settlement, and vector maintenance.
 
-`TetherSupervisor` is a separate parent process. It holds its own lock, spawns the runtime, validates child-parent identity, monitors readiness and heartbeat freshness, restarts unhealthy/exited children with exponential delay and jitter, and stops after a bounded restart budget rather than looping forever. SIGTERM is followed by a configurable grace period before SIGKILL.
+`TetherSupervisor` is a separate parent process. It holds its own lock, spawns the runtime, validates child-parent identity, monitors readiness and heartbeat freshness, restarts unhealthy/exited children with exponential delay and jitter, and stops after a bounded restart budget rather than looping forever. Runtime and supervisor locks bind the PID to a process start marker and hashed command so a rebooted machine cannot mistake an unrelated process that reused the PID for the old owner. Legacy PID-only locks are reclaimed only when the live command is observably unrelated to Tether; unknown identity stays fail-closed. SIGTERM is followed by a configurable grace period before SIGKILL.
 
 A host service manager should run `bin/tether-supervisor.cjs`, not the child runtime directly. The repository provides synthetic launchd and systemd examples.
 

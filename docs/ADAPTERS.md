@@ -34,7 +34,7 @@ const result = await provider.embed({
 // { vectors: [[...]], providerId, model }
 ```
 
-A provider adapter should normalize provider-specific request/response, tool-call, streaming, usage, timeout, and error formats. It must preserve provider/model/purpose provenance and must not use a provider conversation ID as the sole identity anchor.
+A provider adapter should normalize provider-specific request/response, tool-call, streaming, usage, timeout, and error formats. It must preserve provider/model/purpose provenance and must not use a provider conversation ID as the sole identity anchor. The runtime derives committed-turn `outputRoutes` only from the successful `respond` result; an adapter must therefore return the actual provider ID and model that produced `text`, not the first configured route or a failed attempt.
 
 ### Included OpenAI-compatible adapter
 
@@ -50,6 +50,8 @@ A provider adapter should normalize provider-specific request/response, tool-cal
 - HTTPS remote endpoints and loopback-only HTTP.
 
 Provider failover selects another API endpoint around the same session and compiled context. An empty or rejected response may try the next configured provider. If a tool-enabled request may have reached a provider but no durable response proves its outcome, the adapter emits a manual-only ambiguity instead of automatically re-inferring.
+
+For normal turns, one accepted result contributes one route record. Group reply-envelope repair may make several provider calls, but only the candidate whose envelope is accepted contributes to the committed turn. Route metadata is persisted separately from response text and must never be injected into the next provider request.
 
 ## Channel adapter
 

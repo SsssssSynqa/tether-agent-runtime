@@ -34,7 +34,7 @@ const result = await provider.embed({
 // { vectors: [[...]], providerId, model }
 ```
 
-adapter 应统一供应商各自的请求/响应、工具调用、流式、用量、超时和错误格式，保留 provider/model/purpose 出处，且不能把供应商 conversation ID 当作唯一身份锚点。
+adapter 应统一供应商各自的请求/响应、工具调用、流式、用量、超时和错误格式，保留 provider/model/purpose 出处，且不能把供应商 conversation ID 当作唯一身份锚点。runtime 只从成功的 `respond` 结果生成已提交 turn 的 `outputRoutes`，所以 adapter 必须返回真正产出 `text` 的 provider ID 与模型，不能填第一条配置路线或失败尝试。
 
 ### 内置 OpenAI-compatible adapter
 
@@ -50,6 +50,8 @@ adapter 应统一供应商各自的请求/响应、工具调用、流式、用�
 - 远程 HTTPS、仅 loopback HTTP。
 
 provider 回落只是在同一 session 与同一份编译上下文周围切换 API。空响应或可安全拒绝的结果可以尝试下一家；工具请求可能已经到达供应商、但没有 durable 响应证明结果时，adapter 会发出只能人工处理的歧义，而不是自动重新推理。
+
+普通 turn 的一个最终接受结果只贡献一条 route。群回复信封修复可能调用多次 provider，但只有信封通过校验的候选才进入已提交 turn。route metadata 与响应正文分开持久化，绝不能注入下一次 provider 请求。
 
 ## Channel adapter
 

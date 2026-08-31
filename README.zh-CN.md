@@ -202,6 +202,8 @@ Tether 并不试图取代 `AGENTS.md`、记忆库或 Telegram bot 框架，它�
 
 **连续性与恢复**：唯一 session anchor 与恢复证明；fail-closed 启动；稳定因果 ID 与重复消息幂等；已提交回答的原样重放；Telegram durable inbox 与发送侧瞬态重试；owner 状态通知与私聊失败提示；typing 心跳、群限流和 bot 连发上限；可配阈值的持久全局 provider 断路器；心跳、readiness 与带恢复确认窗的进程 supervisor；存储版本化、迁移、备份、校验与恢复。
 
+**产出出处**：每个已提交 assistant turn 都记录真正产出最终正文的 provider 标签与模型；失败的回落尝试、被拒绝的群回复修复候选不会混入 `outputRoutes`，旧记录缺少该字段只表示“未记录”。终端把 route annotation 写到 stderr，不污染 assistant 正文或下一轮 prompt。
+
 **本地工具**：workspace 目录列出、UTF-8 文件读取、原子写入；按通道 allow / approval / deny；工具审批与操作日志；workspace 与连续性存储物理隔离。
 
 按版本的运行与恢复变更见 [CHANGELOG.md](CHANGELOG.md)。

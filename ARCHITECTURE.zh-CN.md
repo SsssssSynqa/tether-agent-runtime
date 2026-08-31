@@ -68,6 +68,8 @@ flowchart TB
 
 运行时用一条队列串行处理全部人格轮次，因此所有通道以确定顺序汇入同一份历史。Telegram 在这条队列外再包一层 durable inbox。重复 update 会落到同一条因果记录；投递确认丢失时复用已提交响应，不会再问一次模型。
 
+已提交的 assistant turn 还会携带 `outputRoutes`：真正产出最终被接受正文的 provider ID/标签与模型。失败的回落尝试和被拒绝的群回复信封修复候选不会混入其中。同一份出处 metadata 会写入因果日志、原始 transcript 与活跃 history，但绝不会拼进 assistant 正文或后续 prompt。旧 turn 缺少该字段只表示“未记录”，不能反推路线。
+
 Telegram 群消息先持久化，再组成精确批次。供应商返回有界 JSON 回复信封；系统验证它，并最多按配置次数修复。崩溃后重放的是原批次/原 run。长回复按 Telegram 上限确定性切片，只有第一片携带 reply target；目标已被删除时，去掉 reply metadata 裸发一次，正文仍是同一份已提交输出。
 
 容量与瞬时传输故障会退避，不会把一条 update 变成重复推理。无法确认的推理、工具副作用或投递进入 operator-paused，而不是靠猜。可恢复故障超过次数后进入可检查的 dead-letter。
@@ -123,7 +125,7 @@ manifest 日志有大小与条数上限，会自动 compact。确定性索引和
 
 `MemoryMaintenanceSupervisor` 运行在人格进程内部：启动后立即执行，提交对话后被唤醒，有工作时按短延迟继续，无工作时按普通周期休眠，失败时指数退避。每一轮依次处理语义工作、卡片结算和向量维护。
 
-`TetherSupervisor` 是独立父进程。它持有自己的锁，启动 runtime，校验父子身份，监测 readiness 与心跳新鲜度；子进程退出或失去健康时，按指数延迟 + jitter 重启；超出时间窗内的重启预算后直接停住，而不是无限 crash loop。SIGTERM 后会留出可配置的优雅退出时间，再按需 SIGKILL。
+`TetherSupervisor` 是独立父进程。它持有自己的锁，启动 runtime，校验父子身份，监测 readiness 与心跳新鲜度；子进程退出或失去健康时，按指数延迟 + jitter 重启；超出时间窗内的重启预算后直接停住，而不是无限 crash loop。runtime 与 supervisor lock 会把 PID 绑定到 process start marker 和 hashed command，避免机器重启后把复用旧 PID 的无关进程误认成原 owner。legacy PID-only lock 仅在 live command 可证实与 Tether 无关时回收；身份不可观测时仍 fail-closed。SIGTERM 后会留出可配置的优雅退出时间，再按需 SIGKILL。
 
 宿主机的 service manager 应运行 `bin/tether-supervisor.cjs`，而不是直接运行子 runtime。仓库提供合成的 launchd 与 systemd 示例。
 
