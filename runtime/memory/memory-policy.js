@@ -27,9 +27,11 @@ const DEFAULT_MEMORY_POLICY = Object.freeze({
   files: Object.freeze({
     dayDirectory: 'day-cards',
     weekDirectory: 'week-cards',
+    monthDirectory: 'month-cards',
     foldDirectory: 'folds',
     dayHeadingTemplate: '# {agent} day card · {period}',
     weekHeadingTemplate: '# {agent} week card · {period} to {end}',
+    monthHeadingTemplate: '# {agent} month card · {period}',
     lockName: '.tether-memory-sync.lock',
   }),
   records: Object.freeze({
@@ -134,6 +136,7 @@ function normalizeMemoryPolicy(value = {}) {
     files: {
       dayDirectory: nonEmptyString(files.dayDirectory, DEFAULT_MEMORY_POLICY.files.dayDirectory),
       weekDirectory: nonEmptyString(files.weekDirectory, DEFAULT_MEMORY_POLICY.files.weekDirectory),
+      monthDirectory: nonEmptyString(files.monthDirectory, DEFAULT_MEMORY_POLICY.files.monthDirectory),
       foldDirectory: nonEmptyString(files.foldDirectory, DEFAULT_MEMORY_POLICY.files.foldDirectory),
       dayHeadingTemplate: nonEmptyString(
         files.dayHeadingTemplate,
@@ -142,6 +145,10 @@ function normalizeMemoryPolicy(value = {}) {
       weekHeadingTemplate: nonEmptyString(
         files.weekHeadingTemplate,
         DEFAULT_MEMORY_POLICY.files.weekHeadingTemplate,
+      ),
+      monthHeadingTemplate: nonEmptyString(
+        files.monthHeadingTemplate,
+        DEFAULT_MEMORY_POLICY.files.monthHeadingTemplate,
       ),
       lockName: nonEmptyString(files.lockName, DEFAULT_MEMORY_POLICY.files.lockName),
     },

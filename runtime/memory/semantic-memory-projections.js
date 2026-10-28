@@ -333,7 +333,7 @@ class SemanticProjectionBuilder {
     }
     if (kind !== 'fold' && !periodKey) throw new Error(`${kind} projection 缺少 periodKey`);
     const period = periodFor(kind, periodKey, this.memoryPolicy.time);
-    const state = semanticState || this.store.resolvedState();
+    const state = semanticState || this.store.resolvedEvidenceState();
     if (!Array.isArray(state?.claims) || !Array.isArray(state?.events)) {
       throw new Error('projection semanticState 缺少 claims/events');
     }
@@ -568,7 +568,7 @@ class SemanticProjectionBuilder {
     // A fold/day/week trio must be a coherent view of one semantic commit. It
     // also avoids resolving and re-reading the same append-only journals once
     // per projection kind.
-    const semanticState = this.store.resolvedState();
+    const semanticState = this.store.resolvedEvidenceState();
     const projections = [];
     for (const request of requests) {
       projections.push(await this.build({

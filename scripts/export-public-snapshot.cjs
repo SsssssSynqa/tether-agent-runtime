@@ -33,6 +33,38 @@ function findStaleManagedPaths(priorFiles, currentTargets) {
     .sort();
 }
 
+function findMissingRelativeDependencies(entries, sourceRoot) {
+  const targets = new Set(entries.map((entry) => String(entry.target || '')));
+  const suffixes = ['', '.js', '.cjs', '.json', '/index.js', '/index.cjs', '/index.json'];
+  const missing = [];
+  const patterns = [
+    /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /\bimport\s+(?:[^'";]+?\s+from\s+)?['"]([^'"]+)['"]/g,
+  ];
+  for (const entry of entries) {
+    if (!/\.(?:c?js|mjs)$/.test(entry.source)) continue;
+    const source = fs.readFileSync(resolveInside(sourceRoot, entry.source), 'utf8');
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0;
+      for (let match; (match = pattern.exec(source));) {
+        const specifier = match[1];
+        if (!specifier.startsWith('.')) continue;
+        const resolved = path.posix.normalize(path.posix.join(
+          path.posix.dirname(entry.target),
+          specifier,
+        ));
+        if (!suffixes.some((suffix) => targets.has(`${resolved}${suffix}`))) {
+          missing.push({ target: entry.target, specifier, resolved });
+        }
+      }
+    }
+  }
+  return missing.sort((left, right) => (
+    left.target.localeCompare(right.target)
+    || left.specifier.localeCompare(right.specifier)
+  ));
+}
+
 function main() {
   const { check, target } = parseArgs(process.argv.slice(2));
   const sourceRoot = path.resolve(__dirname, '..');
@@ -46,6 +78,12 @@ function main() {
   for (const entry of entries) {
     if (seenTargets.has(entry.target)) throw new Error(`Duplicate export target: ${entry.target}`);
     seenTargets.add(entry.target);
+  }
+  const missingDependencies = findMissingRelativeDependencies(entries, sourceRoot);
+  if (missingDependencies.length) {
+    throw new Error(`Public export dependency closure is incomplete: ${missingDependencies
+      .map((item) => `${item.target} -> ${item.specifier}`)
+      .join(', ')}`);
   }
   const lockPath = path.join(target, 'public-export-lock.json');
   let priorLock = null;
@@ -100,4 +138,11 @@ if (require.main === module) {
   }
 }
 
-module.exports = { findStaleManagedPaths, main, parseArgs, resolveInside, sha256 };
+module.exports = {
+  findMissingRelativeDependencies,
+  findStaleManagedPaths,
+  main,
+  parseArgs,
+  resolveInside,
+  sha256,
+};

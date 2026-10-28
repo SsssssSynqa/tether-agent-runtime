@@ -60,6 +60,12 @@ function dayPeriod(dayKey, timePolicy = {}) {
   };
 }
 
+// 下一个换日时刻（毫秒）。now 正好落在换日那一毫秒时给的是再下一个。
+function nextDayBoundaryAt(now = Date.now(), timePolicy = {}) {
+  const policy = resolveTimePolicy(timePolicy);
+  return new Date(dayPeriod(operationalDayKey(now, policy), policy).endAt).getTime() + 1;
+}
+
 function weekKeyForDay(dayKey) {
   const date = new Date(`${dayKey}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime())) throw new Error(`Invalid dayKey: ${dayKey}`);
@@ -83,6 +89,47 @@ function addDays(dayKey, amount) {
   if (Number.isNaN(date.getTime())) throw new Error(`Invalid dayKey: ${dayKey}`);
   date.setUTCDate(date.getUTCDate() + Number(amount || 0));
   return date.toISOString().slice(0, 10);
+}
+
+const MONTH_KEY_RE = /^\d{4}-\d{2}$/;
+
+// 周归属月 = 周一所在月。每周恰好归一个月，跨月周不劈开——月卡由整周组成，
+// 与周卡的来源边界完全一致，不产生"半周归两个月"的重复覆盖。
+function monthKeyForWeek(weekKey) {
+  const key = String(weekKey || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) throw new Error(`Invalid weekKey: ${weekKey}`);
+  return key.slice(0, 7);
+}
+
+function addMonths(monthKey, amount) {
+  if (!MONTH_KEY_RE.test(String(monthKey || ''))) throw new Error(`Invalid monthKey: ${monthKey}`);
+  const [year, month] = String(monthKey).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1 + Number(amount || 0), 1)).toISOString().slice(0, 7);
+}
+
+// 周一落在该月内的全部周键，即该月月卡的组成周
+function weekKeysForMonth(monthKey) {
+  if (!MONTH_KEY_RE.test(String(monthKey || ''))) throw new Error(`Invalid monthKey: ${monthKey}`);
+  const firstWeek = weekKeyForDay(`${monthKey}-01`);
+  let monday = firstWeek.slice(0, 7) === monthKey ? firstWeek : addDays(firstWeek, 7);
+  const result = [];
+  while (monday.slice(0, 7) === monthKey) {
+    result.push(monday);
+    monday = addDays(monday, 7);
+  }
+  return result;
+}
+
+// 自然月窗口（与 dayPeriod 同一 cutoff 语义）：本月 1 号 cutoff 起、下月 1 号 cutoff 前
+function monthPeriod(monthKey, timePolicy = {}) {
+  if (!MONTH_KEY_RE.test(String(monthKey || ''))) throw new Error(`Invalid monthKey: ${monthKey}`);
+  const start = dayPeriod(`${monthKey}-01`, timePolicy);
+  const nextStart = dayPeriod(`${addMonths(monthKey, 1)}-01`, timePolicy);
+  return {
+    key: monthKey,
+    startAt: start.startAt,
+    endAt: new Date(new Date(nextStart.startAt).getTime() - 1).toISOString(),
+  };
 }
 
 function shouldSettleDay(dayKey, {
@@ -127,7 +174,10 @@ function shouldSettleDay(dayKey, {
     };
   }
   if (sceneRecent) {
-    return { eligible: false, forced: false, carryover: false, reason: 'scene-recent' };
+    // 2026-10-14：场景静默够了、或者到了强制结算点，哪个先到就该回来。调用方要把它排进
+    // 持久队列——原来只记一笔 pending，没人回来叫，13 日卡因此晚了三个半小时。
+    const wakeAt = Math.min(asDate(lastSourceAt).getTime() + quietMs, forceAt);
+    return { eligible: false, forced: false, carryover: false, reason: 'scene-recent', wakeAt };
   }
   return {
     eligible: true,
@@ -140,12 +190,17 @@ function shouldSettleDay(dayKey, {
 module.exports = {
   DAY_MS,
   addDays,
+  addMonths,
   asDate,
   dayPeriod,
+  monthKeyForWeek,
+  monthPeriod,
+  nextDayBoundaryAt,
   operationalDayKey,
   resolveTimePolicy,
   shouldSettleDay,
   weekKeyForDay,
+  weekKeysForMonth,
   weekPeriod,
   zonedPartsToIso,
   zonedWallClock,

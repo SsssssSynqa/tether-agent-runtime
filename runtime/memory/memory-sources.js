@@ -4,7 +4,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
+const { collapseExactRepeatedText } = require('./derived-text-integrity.js');
 const { normalizeMemoryPolicy } = require('./memory-policy.js');
+const { heartbeatProjection, publicationProjection } = require('./heartbeat-context');
 const {
   operationalDayKey,
   zonedPartsToIso,
@@ -84,16 +86,22 @@ function normalizeProvenance(value = {}) {
 
 function summarySource(entry, fallbackAt = null, options = {}) {
   const resolved = sourceOptions(options);
-  const text = resolved.sanitizeSummary(entry?.text || '');
-  if (!text) return null;
+  const storedText = resolved.sanitizeSummary(entry?.text || '');
+  if (!storedText) return null;
+  // The append-only summary/archive remains untouched. The prompt view may
+  // remove only provably identical whole-document copies produced by a broken
+  // proofreader response. Identity stays based on storedText so existing card
+  // coverage and provenance IDs do not drift after this view repair.
+  const collapsed = collapseExactRepeatedText(storedText);
+  const text = collapsed.text;
   const at = entry?.at || fallbackAt || new Date().toISOString();
   const range = entry?.sourceRange?.startAt && entry?.sourceRange?.endAt
     ? entry.sourceRange
-    : parseRangeFromSummary(text, at, resolved);
+    : parseRangeFromSummary(storedText, at, resolved);
   return {
     // Time range participates in identity: identical text at different times
     // remains distinct, while one fold mirrored in two stores still dedupes.
-    id: entry?.id || sourceId(range.startAt, range.endAt, text),
+    id: entry?.id || sourceId(range.startAt, range.endAt, storedText),
     kind: 'summary',
     text,
     startAt: range.startAt,
@@ -101,6 +109,7 @@ function summarySource(entry, fallbackAt = null, options = {}) {
     dayKey: operationalDayKey(range.endAt, resolved.memoryPolicy.time),
     provenance: normalizeProvenance(entry?.provenance),
     origin: entry?.origin || 'history-summary',
+    ...(collapsed.copies > 1 ? { collapsedExactCopies: collapsed.copies } : {}),
   };
 }
 
@@ -115,8 +124,16 @@ function roundSourceId(round, index = 0) {
 function roundSource(round, index = 0, options = {}) {
   const resolved = sourceOptions(options);
   const at = round?.ts || new Date().toISOString();
+  const heartbeat = heartbeatProjection(round);
+  if (heartbeat) return {
+    id: roundSourceId(round, index), kind: 'round',
+    // 写卡材料里点明用户不在这一轮里，这里写到用户的状态都是代理写的；用户的状态只认用户本人的话。
+    text: `【自主经历 · ${at} · engine触发，不是用户发言；用户不在这一轮里，这里写到用户的状态、动作、话，都是 ${resolved.memoryPolicy.agent.displayName} 自己写的】\n${resolved.memoryPolicy.sourceLabels.assistant}：${heartbeat.text}`,
+    startAt: at, endAt: at, dayKey: operationalDayKey(at, resolved.memoryPolicy.time),
+    provenance: normalizeProvenance(round?.provenance), origin: 'active-round',
+  };
   const owner = resolved.renderOwnerForContext(round?.user || '');
-  const assistant = String(round?.assistant || '');
+  const assistant = String(round?.assistant || '') + publicationProjection(round);
   const inputLabel = round?.groupIngress === true
     ? 'Group transcript (inner sender fields are authoritative)'
     : resolved.memoryPolicy.sourceLabels.input;
@@ -147,7 +164,8 @@ function parseFoldLogFile(filePath, options = {}) {
   const raw = fs.readFileSync(filePath, 'utf8');
   const label = escapeRegExp(resolved.memoryPolicy.time.displayLabel);
   const header = new RegExp(
-    `^##\\s+(\\d{2}):(\\d{2}):(\\d{2})（${label}）·\\s*折叠\\s+\\d+\\s*轮\\s*$`,
+    // 路由标记属于日志头，不属于摘要正文；仍需用同一个头切开每段来源。
+    `^##\\s+(\\d{2}):(\\d{2}):(\\d{2})（${label}）·\\s*折叠\\s+\\d+\\s*轮(?:[ \\t]+·[^\\r\\n]*)?[ \\t]*$`,
     'gm',
   );
   const matches = [...raw.matchAll(header)];
@@ -164,8 +182,22 @@ function parseFoldLogFile(filePath, options = {}) {
       Number(match[3]),
       resolved.memoryPolicy.time,
     );
+    const exactRange = match[0].match(
+      /(?:^|[ \t])source_range=(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)\.\.(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z)(?=[ \t]|$)/,
+    );
+    const sourceRange = exactRange
+      && !Number.isNaN(Date.parse(exactRange[1]))
+      && !Number.isNaN(Date.parse(exactRange[2]))
+      && Date.parse(exactRange[1]) <= Date.parse(exactRange[2])
+      ? { startAt: exactRange[1], endAt: exactRange[2] }
+      : null;
     return summarySource(
-      { text: body, at: fallbackAt, origin: `fold-log:${filename}` },
+      {
+        text: body,
+        at: fallbackAt,
+        origin: `fold-log:${filename}`,
+        ...(sourceRange ? { sourceRange } : {}),
+      },
       fallbackAt,
       resolved,
     );

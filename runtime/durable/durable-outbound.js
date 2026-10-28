@@ -8,10 +8,18 @@ function groupReplyDeliveryKey(text, replyIndex) {
   return `group-reply-${digest}:${Number(replyIndex) || 0}`;
 }
 
+function selectDurableChunks(finalText, chunks = []) {
+  const usable = chunks.filter(chunk => chunk && String(chunk.text || ''))
+    .map(chunk => ({ kind: chunk.kind || 'content', text: String(chunk.text) }));
+  const normalize = text => String(text || '').replace(/\s+/g, ' ').trim();
+  return usable.length && normalize(usable.map(chunk => chunk.text).join(' ')) === normalize(finalText)
+    ? usable : [{ kind: 'content', text: String(finalText || '') }];
+}
+
 // Generation and local history/transcript persistence must finish before the first
 // externally visible send. `generate` receives a chunk collector and is expected to
 // resolve only after its durable commit. A rejection therefore guarantees zero sends.
-async function deliverBufferedTurn({ generate, deliver }) {
+async function deliverBufferedTurn({ generate, deliver, getPublicationPlan = null, deliverPublication = null }) {
   const chunks = [];
   const finalText = await generate((chunk) => {
     if (!chunk || !String(chunk.text || '')) return;
@@ -23,16 +31,17 @@ async function deliverBufferedTurn({ generate, deliver }) {
   // 比较用空白归一化：chunk emitter 按自然段切块并 trim 每段（正常流拼接后
   // 空白必然与原文不同、字符内容相同），严格相等会把所有正常长回复误判成
   // 改写、退化成超长单块。
-  const normalizeForCompare = (text) => String(text || '').replace(/\s+/g, ' ').trim();
-  const streamedNormalized = normalizeForCompare(chunks.map((chunk) => chunk.text).join(' '));
-  const contractRewrote = chunks.length > 0 && streamedNormalized !== normalizeForCompare(finalText);
-  const durableChunks = chunks.length && !contractRewrote
-    ? chunks
-    : [{ kind: 'content', text: String(finalText || '') }];
+  const durableChunks = selectDurableChunks(finalText, chunks);
+  const publicationPlan = getPublicationPlan?.();
+  if (publicationPlan != null) {
+    if (typeof deliverPublication !== 'function') throw new Error('publication_sender_missing');
+    const publication = await deliverPublication(publicationPlan);
+    return { finalText: String(finalText || ''), chunks: durableChunks, publication };
+  }
   for (let index = 0; index < durableChunks.length; index++) {
     await deliver(durableChunks[index], index);
   }
   return { finalText: String(finalText || ''), chunks: durableChunks };
 }
 
-module.exports = { deliverBufferedTurn, groupReplyDeliveryKey };
+module.exports = { deliverBufferedTurn, groupReplyDeliveryKey, selectDurableChunks };

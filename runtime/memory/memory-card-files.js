@@ -5,10 +5,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { normalizeMemoryPolicy } = require('./memory-policy.js');
-const { addDays } = require('./memory-time.js');
+const { addDays, weekKeysForMonth } = require('./memory-time.js');
+const { describeGenerationRoutes, hasFallbackGenerationRoute } = require('./memory-card-generation-route.js');
 
-const CARD_TYPES = new Set(['day', 'week']);
+const CARD_TYPES = new Set(['day', 'week', 'month']);
 const PERIOD_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_PERIOD_KEY_RE = /^\d{4}-\d{2}$/;
 const LOCK_STALE_MS = 2 * 60 * 1000;
 const STALE_MTIME_TOLERANCE_MS = 1000;
 
@@ -18,7 +20,8 @@ function sha256(value) {
 
 function validateCardIdentity(cardType, periodKey) {
   if (!CARD_TYPES.has(cardType)) throw new Error(`Unknown cardType: ${cardType}`);
-  if (!PERIOD_KEY_RE.test(String(periodKey || ''))) throw new Error(`Invalid periodKey: ${periodKey}`);
+  const keyRe = cardType === 'month' ? MONTH_PERIOD_KEY_RE : PERIOD_KEY_RE;
+  if (!keyRe.test(String(periodKey || ''))) throw new Error(`Invalid periodKey: ${periodKey}`);
 }
 
 function cardMarkdownPath(directory, cardType, periodKey, memoryPolicy = {}) {
@@ -26,15 +29,13 @@ function cardMarkdownPath(directory, cardType, periodKey, memoryPolicy = {}) {
   const policy = normalizeMemoryPolicy(memoryPolicy);
   const root = path.resolve(directory);
   const year = periodKey.slice(0, 4);
-  const name = cardType === 'day'
-    ? `${periodKey}.md`
-    : `${periodKey}--${addDays(periodKey, 6)}.md`;
-  return path.join(
-    root,
-    cardType === 'day' ? policy.files.dayDirectory : policy.files.weekDirectory,
-    year,
-    name,
-  );
+  const name = cardType === 'week'
+    ? `${periodKey}--${addDays(periodKey, 6)}.md`
+    : `${periodKey}.md`;
+  const subdirectory = cardType === 'day'
+    ? policy.files.dayDirectory
+    : (cardType === 'month' ? policy.files.monthDirectory : policy.files.weekDirectory);
+  return path.join(root, subdirectory, year, name);
 }
 
 function cardHeading(cardType, periodKey, memoryPolicy = {}) {
@@ -42,22 +43,28 @@ function cardHeading(cardType, periodKey, memoryPolicy = {}) {
   const policy = normalizeMemoryPolicy(memoryPolicy);
   const template = cardType === 'day'
     ? policy.files.dayHeadingTemplate
-    : policy.files.weekHeadingTemplate;
+    : (cardType === 'month' ? policy.files.monthHeadingTemplate : policy.files.weekHeadingTemplate);
   return template
     .replaceAll('{agent}', policy.agent.displayName)
     .replaceAll('{period}', periodKey)
-    .replaceAll('{end}', addDays(periodKey, 6));
+    // {end} 只对周卡有意义；月卡模板不含 {end}，日卡模板同样不含
+    .replaceAll('{end}', cardType === 'week' ? addDays(periodKey, 6) : '');
 }
 
 function renderCardMarkdown(card, memoryPolicy = {}) {
-  return `${cardHeading(card.cardType, card.period.key, memoryPolicy)}\n\n${String(card.content || '').trim()}\n`;
+  const route = `generatedBy: ${describeGenerationRoutes(card.generationRoutes)}`;
+  const warning = hasFallbackGenerationRoute(card.generationRoutes)
+    ? '\n⚠️兜底档（亲密段可能被净化，待核验或重折）' : '';
+  return `${cardHeading(card.cardType, card.period.key, memoryPolicy)}\n${route}${warning}\n\n${String(card.content || '').trim()}\n`;
 }
 
 function parseCardMarkdown(raw, cardType, periodKey, memoryPolicy = {}) {
   const text = String(raw || '').replace(/\r\n?/g, '\n');
   const expected = cardHeading(cardType, periodKey, memoryPolicy);
   if (text.startsWith(`${expected}\n`)) {
-    return text.slice(expected.length).replace(/^\n+/, '').trim();
+    return text.slice(expected.length).replace(/^\n+/, '')
+      .replace(/^generatedBy: [^\n]*\n(?:⚠️兜底档[^\n]*\n)?\n*/, '')
+      .trim();
   }
   return text.trim();
 }
@@ -154,7 +161,12 @@ function appendRevisionEvent(directory, event) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   const descriptor = fs.openSync(filePath, 'a', 0o600);
   try {
-    fs.writeSync(descriptor, `${JSON.stringify(event)}\n`, null, 'utf8');
+    const bytes = Buffer.from(`${JSON.stringify(event)}\n`, 'utf8');
+    for (let offset = 0; offset < bytes.length;) {
+      const count = fs.writeSync(descriptor, bytes, offset, bytes.length - offset);
+      if (count <= 0) throw new Error('追加写入未前进');
+      offset += count;
+    }
     fs.fsyncSync(descriptor);
   } finally {
     fs.closeSync(descriptor);
@@ -247,6 +259,15 @@ function readCardMarkdown(directory, cardType, periodKey, memoryPolicy = {}) {
   };
 }
 
+// 月卡直接从本自然月每一天的日卡写，不再经过周卡。原来按「周一
+// 落在本月」收周卡，9 月吞进了 10/1–10/4、漏掉了 9/1–9/6；而且周卡本身已是日卡的
+// 摘要，再压一层只会多丢多错。
+function monthDayKeys(monthKey) {
+  const days = [];
+  for (let day = `${monthKey}-01`; day.slice(0, 7) === monthKey; day = addDays(day, 1)) days.push(day);
+  return days;
+}
+
 function fileMtimeMs(filePath) {
   try { return fs.statSync(filePath).mtimeMs; } catch (_) { return 0; }
 }
@@ -269,6 +290,13 @@ function isCardStaleFromFiles({
       ? changedAfterCard(path.join(path.resolve(foldLogDir), `${periodKey}.md`))
       : false;
   }
+  if (card.cardType === 'month') {
+    // 本月日卡文件在月卡之后被改写（invalidate 重生成/人工修订）→ 月卡过期
+    for (const dayKey of monthDayKeys(periodKey)) {
+      if (changedAfterCard(cardMarkdownPath(directory, 'day', dayKey, policy))) return true;
+    }
+    return false;
+  }
   if (card.cardType !== 'week') return false;
   for (let offset = 0; offset < 7; offset += 1) {
     const dayKey = addDays(periodKey, offset);
@@ -287,6 +315,7 @@ module.exports = {
   cardHeading,
   cardMarkdownPath,
   isCardStaleFromFiles,
+  monthDayKeys,
   parseCardMarkdown,
   readCardMarkdown,
   renderCardMarkdown,

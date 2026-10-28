@@ -359,7 +359,45 @@ function ensureArchiveSegment(filePath, archivedLines, transaction) {
   fs.renameSync(temporary, archivePath);
   fs.chmodSync(archivePath, 0o600);
   fsyncDirectory(archiveDirectory);
+  try { compressOldArchives(archiveDirectory); } catch (_) { /* 压缩失败不影响归档本身 */ }
   return { archivePath, digest, bytes: content.length, existed: false };
+}
+
+// 2026-10-14 审计 E04/G02：归档只滚不清，LA 上语义侧 641 片 4.2G、卡片侧 507 片 1.1G，每天再长约 33MB，盘 95%。
+// 不删原档：一天以前的归档片 gzip 后留着（清单 JSONL 约压到十分之一），每次最多压 20 片，不拖慢主路径。
+const ARCHIVE_COMPRESS_AFTER_MS = 24 * 60 * 60 * 1000;
+function compressOldArchives(archiveDirectory, { olderThanMs = ARCHIVE_COMPRESS_AFTER_MS, limit = 20, now = Date.now() } = {}) {
+  const zlib = require('node:zlib');
+  const candidates = fs.readdirSync(archiveDirectory)
+    .filter((name) => name.endsWith('.jsonl'))
+    .map((name) => path.join(archiveDirectory, name))
+    .filter((file) => { try { return now - fs.statSync(file).mtimeMs > olderThanMs; } catch (_) { return false; } })
+    .sort()
+    .slice(0, limit);
+  const done = [];
+  for (const file of candidates) {
+    const target = `${file}.gz`;
+    const original = fs.readFileSync(file);
+    if (fs.existsSync(target)) {
+      // An interrupted run may leave both files; existence alone is not proof.
+      const restored = zlib.gunzipSync(fs.readFileSync(target), { maxOutputLength: original.length + 1 });
+      if (!restored.equals(original)) throw new Error('compile_manifest_archive_content_mismatch');
+      const fd = fs.openSync(target, 'r');
+      try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    } else {
+      const temporary = `${target}.tmp-${process.pid}-${crypto.randomUUID()}`;
+      const packed = zlib.gzipSync(original, { level: 6 });
+      const fd = fs.openSync(temporary, 'wx', 0o600);
+      try { writeAllSync(fd, packed); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      fs.renameSync(temporary, target);
+    }
+    // Commit the replacement name before removing the original, including retries.
+    fsyncDirectory(archiveDirectory);
+    fs.unlinkSync(file);
+    fsyncDirectory(archiveDirectory);
+    done.push(file);
+  }
+  return done;
 }
 
 function splitForRetention(lines, limits) {
@@ -503,7 +541,7 @@ function inspectBoundedJsonl(filePath) {
   const archiveDirectory = archiveDirectoryFor(resolved);
   const archiveFiles = fs.existsSync(archiveDirectory)
     ? fs.readdirSync(archiveDirectory)
-      .filter((name) => name.endsWith('.jsonl'))
+      .filter((name) => name.endsWith('.jsonl') || name.endsWith('.jsonl.gz'))
       .sort()
       .map((name) => path.join(archiveDirectory, name))
     : [];
@@ -523,6 +561,7 @@ module.exports = {
   appendBoundedJsonl,
   archiveDirectoryFor,
   compactBoundedJsonl,
+  compressOldArchives,
   inspectBoundedJsonl,
   stateFileFor,
 };

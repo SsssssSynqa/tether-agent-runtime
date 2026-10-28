@@ -56,6 +56,7 @@ function verifyRepository(rootDirectory) {
   const root = path.resolve(rootDirectory);
   const failures = [];
   let checkedFiles = 0;
+  const checkedComponents = ['runtime'];
 
   const rootLockPath = path.join(root, 'public-export-lock.json');
   const rootLock = readJson(rootLockPath);
@@ -66,15 +67,23 @@ function verifyRepository(rootDirectory) {
   failures.push(...verifyFileLock(root, rootLock.files).map((item) => `runtime:${item}`));
 
   const consoleRoot = path.join(root, 'console');
-  const consoleLock = readJson(path.join(consoleRoot, 'export-lock.json'));
-  if (consoleLock.schema_version !== 1) failures.push('console/export-lock.json: unsupported schema');
-  if (!Number.isInteger(consoleLock.file_count) || consoleLock.file_count !== consoleLock.files?.length) {
-    failures.push('console/export-lock.json: file_count mismatch');
+  if (fs.existsSync(consoleRoot)) {
+    const consoleLockPath = path.join(consoleRoot, 'export-lock.json');
+    if (!fs.existsSync(consoleLockPath)) {
+      failures.push('console/export-lock.json: missing for present console directory');
+    } else {
+      const consoleLock = readJson(consoleLockPath);
+      checkedComponents.push('console');
+      if (consoleLock.schema_version !== 1) failures.push('console/export-lock.json: unsupported schema');
+      if (!Number.isInteger(consoleLock.file_count) || consoleLock.file_count !== consoleLock.files?.length) {
+        failures.push('console/export-lock.json: file_count mismatch');
+      }
+      checkedFiles += Array.isArray(consoleLock.files) ? consoleLock.files.length : 0;
+      failures.push(...verifyFileLock(consoleRoot, consoleLock.files).map((item) => `console:${item}`));
+    }
   }
-  checkedFiles += Array.isArray(consoleLock.files) ? consoleLock.files.length : 0;
-  failures.push(...verifyFileLock(consoleRoot, consoleLock.files).map((item) => `console:${item}`));
 
-  return { failures, checkedFiles };
+  return { failures, checkedFiles, checkedComponents };
 }
 
 function main() {
@@ -84,7 +93,7 @@ function main() {
     console.error(`Public export verification failed:\n- ${result.failures.join('\n- ')}`);
     process.exitCode = 1;
   } else {
-    console.log(`Public export verification: PASS (${result.checkedFiles} runtime+console files)`);
+    console.log(`Public export verification: PASS (${result.checkedFiles} ${result.checkedComponents.join('+')} files)`);
   }
 }
 

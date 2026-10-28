@@ -9,6 +9,10 @@ const { StringDecoder } = require('node:string_decoder');
 const STORE_VERSION = 1;
 const LOCK_TIMEOUT_MS = 3000;
 const LOCK_STALE_MS = 120_000;
+// A record-separator byte is not valid unescaped JSON. appendFsynced adds it
+// only after an unterminated final fragment, so readers can distinguish that
+// known torn append from a newline-terminated corrupt record in the middle.
+const TORN_TAIL_MARKER = '\x1e';
 const DEFAULT_CURSOR = Object.freeze({
   schemaVersion: STORE_VERSION,
   source: null,
@@ -58,10 +62,20 @@ function atomicWriteJson(filePath, value) {
 
 function appendFsynced(filePath, value) {
   ensurePrivateDirectory(path.dirname(filePath));
-  const fd = fs.openSync(filePath, 'a', 0o600);
-  const line = Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
+  const fd = fs.openSync(filePath, 'a+', 0o600);
+  let line = Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
   let bytesWritten = 0;
   try {
+    // 2026-10-03 审计 S09：上一次追加若在 ENOSPC/断电时只写进半行，新记录会接在
+    // 半行后面一起变成坏行。先看末尾，缺换行就补一个，把残行隔离成独立的一行。
+    const { size } = fs.fstatSync(fd);
+    if (size > 0) {
+      const last = Buffer.alloc(1);
+      fs.readSync(fd, last, 0, 1, size - 1);
+      if (last[0] !== 0x0a) {
+        line = Buffer.concat([Buffer.from(`${TORN_TAIL_MARKER}\n`), line]);
+      }
+    }
     while (bytesWritten < line.length) {
       const written = fs.writeSync(
         fd,
@@ -90,6 +104,38 @@ function readJson(filePath, fallback) {
   }
 }
 
+// 2026-10-03 审计 S09：最终未换行残尾是未提交的追加，可以隔离；2026-10-07
+// 已经换行的普通坏行是已提交区间损坏，必须失败关闭，不能静默漏记录。
+const tornLineWarned = new Set();
+function parseJournalLine(filePath, text, {
+  allowTornTail = false,
+  lineNumber = null,
+  offset = null,
+} = {}) {
+  const markedTornTail = text.endsWith(TORN_TAIL_MARKER);
+  const candidate = markedTornTail ? text.slice(0, -TORN_TAIL_MARKER.length) : text;
+  try {
+    return { ok: true, value: JSON.parse(candidate) };
+  } catch (error) {
+    if (allowTornTail || markedTornTail) {
+      if (!tornLineWarned.has(filePath)) {
+        tornLineWarned.add(filePath);
+        console.error(`[semantic-memory] ${path.basename(filePath)} 有未提交的残尾，已隔离；后续完整记录仍可读取`);
+      }
+      return { ok: false };
+    }
+    const location = lineNumber !== null
+      ? `line=${lineNumber}`
+      : offset !== null ? `offset=${offset}` : 'committed-region';
+    const corrupt = new SyntaxError(
+      `semantic journal ${path.basename(filePath)} corrupt at ${location}`,
+      { cause: error },
+    );
+    corrupt.code = 'SEMANTIC_JOURNAL_CORRUPT_LINE';
+    throw corrupt;
+  }
+}
+
 /**
  * Iterates a JSONL file a bounded chunk at a time. This intentionally avoids
  * readFileSync so a long-running sidecar never needs to hold the journal in RAM.
@@ -105,6 +151,7 @@ function visitJsonl(filePath, visitor, { chunkSize = 64 * 1024 } = {}) {
   const buffer = Buffer.allocUnsafe(chunkSize);
   const decoder = new StringDecoder('utf8');
   let remainder = '';
+  let lineNumber = 0;
   try {
     while (true) {
       const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
@@ -113,12 +160,69 @@ function visitJsonl(filePath, visitor, { chunkSize = 64 * 1024 } = {}) {
       const lines = text.split('\n');
       remainder = lines.pop() || '';
       for (const line of lines) {
+        lineNumber += 1;
         if (!line.trim()) continue;
-        visitor(JSON.parse(line));
+        const parsed = parseJournalLine(filePath, line, { lineNumber });
+        if (parsed.ok) visitor(parsed.value);
       }
     }
     remainder += decoder.end();
-    if (remainder.trim()) visitor(JSON.parse(remainder));
+    if (remainder.trim()) {
+      const parsed = parseJournalLine(filePath, remainder, {
+        allowTornTail: true,
+        lineNumber: lineNumber + 1,
+      });
+      if (parsed.ok) visitor(parsed.value);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function visitJsonlWithOffsets(filePath, visitor, { chunkSize = 64 * 1024 } = {}) {
+  let fd;
+  try { fd = fs.openSync(filePath, 'r'); } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+  const buffer = Buffer.allocUnsafe(chunkSize);
+  let pending = Buffer.alloc(0);
+  let position = 0;
+  let lineNumber = 0;
+  try {
+    while (true) {
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (!bytesRead) break;
+      const data = pending.length
+        ? Buffer.concat([pending, buffer.subarray(0, bytesRead)])
+        : buffer.subarray(0, bytesRead);
+      const baseOffset = position - pending.length;
+      let start = 0;
+      while (true) {
+        const end = data.indexOf(10, start);
+        if (end < 0) break;
+        const line = data.subarray(start, end);
+        lineNumber += 1;
+        if (line.length) {
+          const parsed = parseJournalLine(filePath, line.toString('utf8'), {
+            lineNumber,
+            offset: baseOffset + start,
+          });
+          if (parsed.ok) visitor(parsed.value, baseOffset + start, line.length);
+        }
+        start = end + 1;
+      }
+      pending = Buffer.from(data.subarray(start));
+      position += bytesRead;
+    }
+    if (pending.length) {
+      const parsed = parseJournalLine(filePath, pending.toString('utf8'), {
+        allowTornTail: true,
+        lineNumber: lineNumber + 1,
+        offset: position - pending.length,
+      });
+      if (parsed.ok) visitor(parsed.value, position - pending.length, pending.length);
+    }
   } finally {
     fs.closeSync(fd);
   }
@@ -634,6 +738,7 @@ class SemanticMemoryStore {
     // relevant index and rebuilds it from the journal before returning data.
     this._cacheRevision = 0;
     this._journalIndexes = new Map();
+    this._projectionIdsCache = null;
     this._jsonSnapshots = new Map();
     this._resolvedStateCache = null;
     this._reviewedPacketsCache = null;
@@ -801,6 +906,32 @@ class SemanticMemoryStore {
     const error = new Error(
       `${path.basename(filePath)} 在读取期间持续变化，拒绝使用可能撕裂的索引`,
     );
+    error.code = 'SEMANTIC_MEMORY_JOURNAL_RACE';
+    throw error;
+  }
+
+  _projectionIds() {
+    const filePath = this.paths.projections;
+    const signature = fileStatSignature(filePath);
+    if (this._projectionIdsCache && sameFileStat(this._projectionIdsCache.signature, signature)) {
+      return this._projectionIdsCache;
+    }
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const before = fileStatSignature(filePath);
+      const locations = new Map();
+      visitJsonlWithOffsets(filePath, (record, offset, length) => {
+        if (record?.projectionId) locations.set(String(record.projectionId), {
+          offset, length,
+          projectionType: String(record.projectionType || ''),
+          periodKey: String(record.period?.key || ''),
+        });
+      });
+      const after = fileStatSignature(filePath);
+      if (!sameFileStat(before, after)) continue;
+      this._projectionIdsCache = { ids: new Set(locations.keys()), locations, signature: after };
+      return this._projectionIdsCache;
+    }
+    const error = new Error('projections.jsonl 在读取期间持续变化');
     error.code = 'SEMANTIC_MEMORY_JOURNAL_RACE';
     throw error;
   }
@@ -1047,6 +1178,9 @@ class SemanticMemoryStore {
     if (wantedIds.has('')) {
       throw new Error(`${path.basename(filePath)} record 缺少 ${idField}`);
     }
+    if (filePath === this.paths.projections) {
+      return this._appendUniqueProjections(candidates);
+    }
     const index = this._journalIndex(filePath, idField);
     const semanticType = this._semanticJournalType(filePath);
     const incrementalCache = semanticType ? this._currentResolvedCache() : null;
@@ -1078,6 +1212,37 @@ class SemanticMemoryStore {
       if (!incremented) this._resolvedStateCache = null;
     }
     return appendedRecords.length;
+  }
+
+  _appendUniqueProjections(records) {
+    const index = this._projectionIds();
+    const before = index.signature;
+    const plannedIds = new Set();
+    let bytesWritten = 0;
+    for (const record of records) {
+      const id = String(record.projectionId);
+      if (index.ids.has(id) || plannedIds.has(id)) continue;
+      bytesWritten += appendFsynced(this.paths.projections, record);
+      plannedIds.add(id);
+    }
+    if (!plannedIds.size) return 0;
+    const after = fileStatSignature(this.paths.projections);
+    const identityPreserved = before.exists
+      ? after.exists && before.dev === after.dev && before.ino === after.ino
+      : after.exists;
+    this._journalIndexes.delete(this.paths.projections);
+    this._resolvedStateCache = null;
+    if (!identityPreserved || after.size !== before.size + bytesWritten) {
+      this._projectionIdsCache = null;
+      this._projectionIds();
+    } else {
+      // Appended ids have no cached byte range yet. The next point lookup
+      // rebuilds offsets once; duplicate checks can still use the id set.
+      plannedIds.forEach((id) => index.ids.add(id));
+      index.locations = null;
+      index.signature = after;
+    }
+    return plannedIds.size;
   }
 
   _appendRevisions(filePath, idField, records) {
@@ -1307,6 +1472,104 @@ class SemanticMemoryStore {
       });
     }
     return state;
+  }
+
+  resolvedEvidenceState() {
+    const claims = this._journalIndex(this.paths.claims, 'claimId');
+    const events = this._journalIndex(this.paths.events, 'eventId');
+    const patches = this._journalIndex(this.paths.patches, 'patchId');
+    const entities = this.entities();
+    return resolveSemanticState({
+      claims: [...claims.latest.values()],
+      events: [...events.latest.values()],
+      patches: [...patches.latest.values()],
+      entities: entities.entities || [],
+    });
+  }
+
+  projection(projectionId) {
+    const id = String(projectionId || '');
+    if (!id) return null;
+    let index = this._projectionIds();
+    if (!index.locations) {
+      this._projectionIdsCache = null;
+      index = this._projectionIds();
+    }
+    const location = index.locations.get(id);
+    if (!location) return null;
+    const raw = this._readProjectionAt(location, index.signature);
+    if (String(raw.projectionId) !== id) throw new Error('projection 索引与日志不一致');
+    if (!raw) return null;
+    const claims = this._journalIndex(this.paths.claims, 'claimId');
+    const events = this._journalIndex(this.paths.events, 'eventId');
+    const patches = this._journalIndex(this.paths.patches, 'patchId');
+    return resolveSemanticState({
+      claims: [...claims.latest.values()],
+      events: [...events.latest.values()],
+      projections: [raw],
+      patches: [...patches.latest.values()],
+      entities: this.entities().entities || [],
+    }).projections.find((projection) => projection.projectionId === id) || null;
+  }
+
+  _readProjectionAt(location, signature) {
+    const buffer = Buffer.alloc(location.length);
+    const fd = fs.openSync(this.paths.projections, 'r');
+    let read = 0;
+    try {
+      while (read < buffer.length) {
+        const count = fs.readSync(fd, buffer, read, buffer.length - read, location.offset + read);
+        if (!count) break;
+        read += count;
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (read !== buffer.length || !sameFileStat(signature, fileStatSignature(this.paths.projections))) {
+      this._projectionIdsCache = null;
+      const error = new Error('projections.jsonl 在读取期间持续变化');
+      error.code = 'SEMANTIC_MEMORY_JOURNAL_RACE';
+      throw error;
+    }
+    return JSON.parse(buffer.toString('utf8'));
+  }
+
+  projectionsForPeriods(periodKeys) {
+    const wantedKeys = new Set((periodKeys || []).map(String).filter(Boolean));
+    if (!wantedKeys.size) return [];
+    let index = this._projectionIds();
+    if (!index.locations) {
+      this._projectionIdsCache = null;
+      index = this._projectionIds();
+    }
+    const patches = this._journalIndex(this.paths.patches, 'patchId');
+    const targetIds = new Set([...index.locations]
+      .filter(([, location]) => wantedKeys.has(location.periodKey))
+      .map(([id]) => id));
+    for (const patch of patches.latest.values()) {
+      if (patch?.targetType === 'projection'
+        && wantedKeys.has(String(patch.after?.period?.key || ''))) {
+        targetIds.add(String(patch.targetId));
+      }
+    }
+    if (!targetIds.size) return [];
+    const raw = [...targetIds].map((id) => {
+      const location = index.locations.get(id);
+      return location ? this._readProjectionAt(location, index.signature) : null;
+    }).filter(Boolean);
+    const claims = this._journalIndex(this.paths.claims, 'claimId');
+    const events = this._journalIndex(this.paths.events, 'eventId');
+    return resolveSemanticState({
+      claims: [...claims.latest.values()],
+      events: [...events.latest.values()],
+      projections: raw,
+      patches: [...patches.latest.values()],
+      entities: this.entities().entities || [],
+    }).projections.filter((projection) => wantedKeys.has(String(projection.period?.key || '')));
+  }
+
+  projectionsForPeriod(periodKey) {
+    return this.projectionsForPeriods([periodKey]);
   }
 
   claims({ applyPatches = true } = {}) {
